@@ -36,25 +36,26 @@ class BiMambaBlock(nn.Module):
         residual = x
         
         # Forward Mamba
-        # x_norm = self.norm1(x)
-        mamba_out_forward = self.mamba(x)
+        # x_norm = self.norm1(x)embedding_dim
+        x_forward = self.mamba(x)
 
         # Backward Mamba
         x_flip = torch.flip(x, dims=[1])  # Flip Sequence
-        mamba_out_backward = self.mamba(x_flip)
-        mamba_out_backward = torch.flip(mamba_out_backward, dims=[1])  # Flip back
+        X_backward = self.mamba(x_flip)
+        X_backward = torch.flip(X_backward, dims=[1])  # Flip back
         # print("mamba out backward shape :", mamba_out_backward.shape)
     
         # Combining forward and backward
-        mamba_out = mamba_out_forward + mamba_out_backward
-        mamba_layer_norm  = self.norm2(mamba_out)
+        Y_cap = x_forward + X_backward
+        Y_mlp = self.feed_forward(Y_cap)
+        Y_layer_norm  = self.norm2(Y_mlp)
         # print("mamba out 1 shape :", mamba_out1.shape)
     
-        mamba_out2 = self.feed_forward(mamba_layer_norm)
+        X_curr  = Y_cap + Y_layer_norm
 
-        ff_out  = mamba_out + mamba_out2
+        # ff_out  = mamba_out + mamba_out2
         # output = ff_out + residualstart_index
-        return ff_out
+        return X_curr
 
 
 
@@ -101,11 +102,6 @@ class VanillaMambaBlock(nn.Module):
 
 
 
-
-
-
-
-
 class BiMambaEncodingLayer(nn.Module):
     def __init__(self, embedding_dim, num_blocks):
         super(BiMambaEncodingLayer, self).__init__()
@@ -149,8 +145,6 @@ class VanillaMambaEncodingLayer(nn.Module):
     
     
 
-
-
 class BBoxLSTMModel(nn.Module):
     def __init__(self, input_size, hidden_size, output_size, num_layers=1):
         super(BBoxLSTMModel, self).__init__()
@@ -163,6 +157,12 @@ class BBoxLSTMModel(nn.Module):
 
         # Fully connected layer
         self.fc = nn.Linear(hidden_size, output_size)
+        
+        self.feed_forward = nn.Sequential(
+            nn.Linear(hidden_size, hidden_size * 4),
+            nn.GELU(),
+            nn.Linear(hidden_size * 4, hidden_size)
+        )
 
     def forward(self, x):
         # Initialize hidden state and cell state
@@ -172,6 +172,8 @@ class BBoxLSTMModel(nn.Module):
         # LSTM forward pass
         out, _ = self.lstm(x, (h0, c0))
         
+        out = self.feed_forward(out)
+    
         # Take the output from the last time step
         out = self.fc(out[:, -1, :]).float()
         
@@ -180,21 +182,52 @@ class BBoxLSTMModel(nn.Module):
     
     
 
-class FullModel(nn.Module):
-    def __init__(self, input_dim, embedding_dim, num_blocks, prediction_dim):
+class FullModelMambaOffset(nn.Module):
+    def __init__(self, input_dim, embedding_dim, num_blocks, prediction_dim, mamba_type= "vanilla mamba"):
         super(FullModel, self).__init__()
+        self.mamba_type = mamba_type
         self.temporal_token_embedding = TemporalTokenEmbedding(input_dim, embedding_dim)
-        # self.bi_mamba_encoding_layer = BiMambaEncodingLayer(embedding_dim, num_blocks)
+        self.bi_mamba_encoding_layer = BiMambaEncodingLayer(embedding_dim, num_blocks)
         self.vanilla_mamba_encoding_layer = VanillaMambaEncodingLayer(embedding_dim, num_blocks = 2)
         self.prediction_head = nn.Linear(embedding_dim, prediction_dim)
-    
+
     def forward(self, x):
         x = self.temporal_token_embedding(x)
         # print(" x shape is : ", x.shape)
         # print(' type of x is : ', type(x))
         # x  =  x.unsqueeze(0)
         # print(" x after reshaping it is : ", x.shape)
-        # x = self.bi_mamba_encoding_layer(x)
+        if self.mamba_type == "vanilla mamba":
+            x = self.vanilla_mamba_encoding_layer(x)
+        elif self.mamba_type == "bi mamba":    
+            x = self.bi_mamba_encoding_layer(x)
+        # print(" x shape after  bimamba encoding layer is : ", x.shape)
+        # x = self.prediction_head(x) ## This returns (batch, contect_window, 4) where 4 is the bounind box
+        
+        # We only want the last element prediction
+        x = self.prediction_head(x[:, -1, :]) 
+        
+        # print(" x shape after  prediction head layer : ", x.shape)
+        
+        return x
+    
+    
+
+class FullModelMambaBBox(nn.Module):
+    def __init__(self, input_dim, embedding_dim, num_blocks, prediction_dim, mamba_type= "vanilla mamba"):
+        super(FullModelMambaBBox, self).__init__()
+        self.mamba_type = mamba_type
+        self.temporal_token_embedding = TemporalTokenEmbedding(input_dim, embedding_dim)
+        self.vanilla_mamba_encoding_layer = VanillaMambaEncodingLayer(embedding_dim, num_blocks = 2)
+        self.prediction_head = nn.Linear(embedding_dim, prediction_dim)
+
+    def forward(self, x):
+        x = self.temporal_token_embedding(x)
+        # print(" x shape is : ", x.shape)
+        # print(' type of x is : ', type(x))
+        # x  =  x.unsqueeze(0)
+        # print(" x after reshaping it is : ", x.shape)
+        # if self.mamba_type == "vanilla mamba":
         x = self.vanilla_mamba_encoding_layer(x)
         # print(" x shape after  bimamba encoding layer is : ", x.shape)
         # x = self.prediction_head(x) ## This returns (batch, contect_window, 4) where 4 is the bounind box

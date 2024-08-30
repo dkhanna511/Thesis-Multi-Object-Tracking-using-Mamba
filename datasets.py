@@ -108,76 +108,76 @@ class MambaMOTDataset(Dataset):
         return self.nS
 
 
+class MOT20DatasetBB(Dataset):
+    def __init__(self, path, window_size=10, image_dims=(1920, 1080)):
+        self.window_size = window_size
+        self.image_width, self.image_height = image_dims
 
+        # Initialize data storage
+        self.data = []
+        self.targets = []
 
-class MOT20Dataset(Dataset):
-    def __init__(self, root_dir, context_window=10):
-        self.root_dir = root_dir
-        self.context_window = context_window
-        self.tracklets = self.load_tracklets()
-        # print("tracklets are : ", self.tracklets)
+        # Load the dataset
+        self._load_data(path)
 
-    def load_tracklets(self):
+    def _load_data(self, path):
         """
-        Load the ground truth data from all the sequences in the MOT20 dataset.
+        Load data from the provided path and collect bounding boxes.
         """
-        tracklets = {}
-        for seq in sorted(os.listdir(self.root_dir)):
-            # print(" sequence is : ", seq)
-            gt_path = os.path.join(self.root_dir, seq, 'gt', 'gt.txt')
-            if os.path.exists(gt_path):
-                data = np.loadtxt(gt_path, delimiter=',')
-                # print(" shape of data is : ", data.shape)
-                frames = np.unique(data[:, 0]).astype(int)
-                # print(" frames list is : ", len(frames))
-                # exit(0)
-                tracklets[seq] = {frame: data[data[:, 0] == frame, :] for frame in frames}
-        return tracklets
+        sequences = [seq for seq in os.listdir(path) if os.path.isdir(os.path.join(path, seq))]
+        sequences.sort()
+        
+        for seq in sequences:
+            gt_path = os.path.join(path, seq, "gt", "gt.txt")  # Path to ground truth file
+            if not os.path.exists(gt_path):
+                continue
+            
+            # Load ground truth data for the sequence
+            gt_data = np.loadtxt(gt_path, delimiter=',')
+            
+            # Filter for specific object IDs, sorting by frame number
+            for obj_id in np.unique(gt_data[:, 1]):
+                obj_data = gt_data[gt_data[:, 1] == obj_id]
+                obj_data = obj_data[obj_data[:, 0].argsort()]  # Sort by frame number
+                
+                # Extract bounding boxes (columns: [frame, id, left, top, width, height, conf, x, y, z])
+                bboxes = obj_data[:, 2:6]  # [left, top, width, height]
+                
+                # Normalize bounding boxes
+                bboxes[:, 0] /= self.image_width  # Normalize left
+                bboxes[:, 1] /= self.image_height  # Normalize top
+                bboxes[:, 2] /= self.image_width  # Normalize width
+                bboxes[:, 3] /= self.image_height  # Normalize height
+                
+                print(" bboxes are: ", bboxes)
+                # Skip sequences that are too short
+                if len(bboxes) <= self.window_size:
+                    continue  
+
+                # Collect bounding boxes for input andMOT20DatasetBBoxes target pairs
+                for i in range(len(bboxes) - self.window_size):
+                    input_bboxes = bboxes[i:i + self.window_size]  # Bounding boxes for the input window
+                    target_bbox = bboxes[i + self.window_size]    # Next frame's bounding box as target
+                    
+                    self.data.append(input_bboxes)
+                    self.targets.append(target_bbox)
 
     def __len__(self):
-        """
-        Calculate the number of sliding windows possible for all sequences combined.
-        """
-        total_windows = 0
-        for seq, frames in self.tracklets.items():
-            total_windows += max(0, len(frames) - self.context_window)
-        return total_windows
+        return len(self.data)
 
     def __getitem__(self, idx):
         """
-        Generate a sliding window sample from the dataset.
+        Get the input-target pair at index `idx`.
         """
-        current_idx = idx
-        for seq, frames in self.tracklets.items():
-            num_windows = max(0, len(frames) - self.context_window)
-            if current_idx < num_windows:
-                frame_indices = list(frames.keys())[current_idx:current_idx + self.context_window + 1]
-                input_frames = [frames[frame_idx][:, 2:6] for frame_idx in frame_indices[:-1]]  # (x, y, width, height)
-                target_frame = frames[frame_indices[-1]][:, 2:6]  # Next frame's bounding boxes
-                
-                input_frames = np.stack(input_frames)  # Convert list of arrays to a single array
-                return input_frames, target_frame
-
-            current_idx -= num_windows
-
-        raise IndexError(f"Index {idx} out of range.")
-
-# Usage example
-# root_dir = 'MOT17/train'
-# dataset = MOT20Dataset(root_dir)
-
-# # Access one sample
-# input_frames, target_frame = dataset[0]
-# print(input_frames.shape, target_frame.shape)
-# print("target is : ", target_frame)
-
-
-
-
+        input_data = self.data[idx]
+        target_data = self.targets[idx]
+        return torch.from_numpy(input_data.astype(float)), torch.from_numpy(target_data.astype(float))    
+    
 
 class MOT20DatasetOffset(Dataset):
-    def __init__(self, path, window_size=10):
+    def __init__(self, path, window_size=10, image_dims = (1920, 1080)):
         self.window_size = window_size
+        self.image_width, self.image_height = image_dims
 
         # Initialize data storage
         self.data = []
@@ -210,6 +210,13 @@ class MOT20DatasetOffset(Dataset):
                 # Extract bounding boxes (columns: [frame, id, left, top, width, height, conf, x, y, z])
                 bboxes = obj_data[:, 2:6]  # [left, top, width, height]
                 
+                # Normalize bounding boxes
+                # bboxes[:, 0] /= self.image_width  # Normalize left
+                # bboxes[:, 1] /= self.image_height  # Normalize top
+                # bboxes[:, 2] /= self.image_width  # Normalize width
+                # bboxes[:, 3] /= self.image_height  # Normalize height
+                
+                
                 if len(bboxes) <= self.window_size:
                     continue  # Skip sequences that are too short
 
@@ -237,10 +244,25 @@ class MOT20DatasetOffset(Dataset):
     
     
     
-    
-    
-    
-    
-    
+# Usage example
 
- 
+if __name__  == '__main__':
+    root_dir = 'MOT17/train'
+    
+    # Sample verification
+    dataset = MOT20DatasetOffset(path=root_dir)
+    for i in range(len(dataset)):
+        # try:
+        input_frames, target_frame = dataset[i]
+            # print(f"Sample {i}: input_frames shape: {input_frames.shape}, target_frame shape: {target_frame.shape}")
+        # except Exception as e:
+            # print(f"Error at index {i}: {e}")# print(input_frames.shape, target_frame.shape)
+    # print("target is : ", target_frame)
+        # print(" input shape is : ", input_frames.shape)
+        # print("target shape is : ", target_frame.shape)
+        if i == 1200:
+            print(input_frames)
+            print(target_frame)
+            exit(0)
+
+

@@ -1,78 +1,46 @@
-def calculate_iou(box1, box2):
+import torch
+
+
+def giou_loss(pred_boxes, target_boxes):
     """
-    Calculate the Intersection over Union (IoU) of two bounding boxes.
+    Compute the Generalized Intersection over Union (GIoU) loss between predicted and target bounding boxes.
     
     Parameters:
-        box1 (array-like): [x_min, y_min, x_max, y_max] format
-        box2 (array-like): [x_min, y_min, x_max, y_max] format
+    - pred_boxes: Tensor of shape (N, 4) representing the predicted bounding boxes [x1, y1, x2, y2].
+    - target_boxes: Tensor of shape (N, 4) representing the ground truth bounding boxes [x1, y1, x2, y2].
     
     Returns:
-        float: IoU value
+    - loss: Scalar GIoU loss.
     """
-    x1_min, y1_min, x1_max, y1_max = box1
-    x2_min, y2_min, x2_max, y2_max = box2
 
-    # Calculate the (x, y)-coordinates of the intersection rectangle
-    inter_x_min = max(x1_min, x2_min)
-    inter_y_min = max(y1_min, y2_min)
-    inter_x_max = min(x1_max, x2_max)
-    inter_y_max = min(y1_max, y2_max)
-
-    # Compute the area of intersection rectangle
-    inter_area = max(0, inter_x_max - inter_x_min + 1) * max(0, inter_y_max - inter_y_min + 1)
-
-    # Compute the area of both the prediction and ground-truth rectangles
-    box1_area = (x1_max - x1_min + 1) * (y1_max - y1_min + 1)
-    box2_area = (x2_max - x2_min + 1) * (y2_max - y2_min + 1)
-
-    # Compute the intersection over union by taking the intersection
-    # area and dividing it by the sum of the prediction + ground-truth
-    # areas - the intersection area
-    iou = inter_area / float(box1_area + box2_area - inter_area)
-
-    return iou
-
-def calculate_predicted_bboxes(previous_bboxes, offset_deltas):
-    """
-    Calculate the predicted bounding boxes using the offsets.
+    # Compute intersection
+    inter_x1 = torch.max(pred_boxes[:, 0], target_boxes[:, 0])
+    inter_y1 = torch.max(pred_boxes[:, 1], target_boxes[:, 1])
+    inter_x2 = torch.min(pred_boxes[:, 2], target_boxes[:, 2])
+    inter_y2 = torch.min(pred_boxes[:, 3], target_boxes[:, 3])
     
-    Parameters:
-        previous_bboxes (np.array): Numpy array of shape (num_objects, 4) containing the bounding boxes from t-th frame.
-        offset_deltas (np.array): Numpy array of shape (num_objects, 4) containing the offset differences.
-        
-    Returns:
-        np.array: Numpy array of shape (num_objects, 4) containing the predicted bounding boxes for the (t+1)-th frame.
-    """
-    # Calculate predicted bounding boxes by adding offsets to previous bounding boxes
-    predicted_bboxes = previous_bboxes + offset_deltas
-    return predicted_bboxes
+    inter_area = (inter_x2 - inter_x1).clamp(min=0) * (inter_y2 - inter_y1).clamp(min=0)
 
-def iou_matching(predicted_bboxes, actual_bboxes):
-    """
-    Match predicted bounding boxes with actual bounding boxes based on IoU.
+    # Compute union
+    pred_area = (pred_boxes[:, 2] - pred_boxes[:, 0]) * (pred_boxes[:, 3] - pred_boxes[:, 1])
+    target_area = (target_boxes[:, 2] - target_boxes[:, 0]) * (target_boxes[:, 3] - target_boxes[:, 1])
+    union_area = pred_area + target_area - inter_area
+
+    # IoU
+    iou = inter_area / union_area.clamp(min=1e-6)
+
+    # Compute the smallest enclosing box
+    enc_x1 = torch.min(pred_boxes[:, 0], target_boxes[:, 0])
+    enc_y1 = torch.min(pred_boxes[:, 1], target_boxes[:, 1])
+    enc_x2 = torch.max(pred_boxes[:, 2], target_boxes[:, 2])
+    enc_y2 = torch.max(pred_boxes[:, 3], target_boxes[:, 3])
     
-    Parameters:
-        predicted_bboxes (np.array): Numpy array of shape (num_predictions, 4)
-        actual_bboxes (np.array): Numpy array of shape (num_actuals, 4)
-    
-    Returns:
-        list of tuples: Each tuple contains (index of predicted bbox, index of actual bbox, IoU score)
-    """
-    num_predictions = predicted_bboxes.shape[0]
-    num_actuals = actual_bboxes.shape[0]
+    enc_area = (enc_x2 - enc_x1) * (enc_y2 - enc_y1).clamp(min=1e-6)
 
-    iou_matrix = np.zeros((num_predictions, num_actuals))
+    # GIoU
+    giou = iou - (enc_area - union_area) / enc_area.clamp(min=1e-6)
 
-    # Calculate IoU for every pair of predicted and actual bounding boxes
-    for i in range(num_predictions):
-        for j in range(num_actuals):
-            iou_matrix[i, j] = calculate_iou(predicted_bboxes[i], actual_bboxes[j])
+    # GIoU loss
+    loss = 1 - giou
 
-    # Find the best matches using the Hungarian algorithm or any preferred matching method
-    from scipy.optimize import linear_sum_assignment
-    row_ind, col_ind = linear_sum_assignment(-iou_matrix)  # Negative because the algorithm minimizes cost
-
-    # Create list of matched indices with IoU scores
-    matches = [(i, j, iou_matrix[i, j]) for i, j in zip(row_ind, col_ind)]
-
-    return matches
+    return loss.mean()
