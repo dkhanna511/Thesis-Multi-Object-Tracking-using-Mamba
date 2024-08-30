@@ -184,7 +184,7 @@ class BBoxLSTMModel(nn.Module):
 
 class FullModelMambaOffset(nn.Module):
     def __init__(self, input_dim, embedding_dim, num_blocks, prediction_dim, mamba_type= "vanilla mamba"):
-        super(FullModel, self).__init__()
+        super(FullModelMambaOffset, self).__init__()
         self.mamba_type = mamba_type
         self.temporal_token_embedding = TemporalTokenEmbedding(input_dim, embedding_dim)
         self.bi_mamba_encoding_layer = BiMambaEncodingLayer(embedding_dim, num_blocks)
