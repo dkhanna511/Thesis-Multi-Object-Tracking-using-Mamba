@@ -9,7 +9,7 @@ from schedulars import CustomWarmupScheduler
 from datasets import MOT20DatasetBB
 # torch.manual_seed(3000)  ## Setting up a seed where to start the weights (somewhat)
 from torchvision.ops import generalized_box_iou_loss as GIOU_Loss
-
+import math
 import iou_calc
 
 
@@ -97,7 +97,7 @@ for epoch in range(num_epochs):
     start_time = time.time()
     epoch_loss = 0.0  # Initialize epoch_loss
     model.train()
-    for inputs, targets in train_loader:
+    for inputs, targets, sequences in train_loader:
         # Move tensors to the configured device
         inputs, targets = inputs.to(device), targets.to(device)
         # print("shape of inputs is : ", inputs.shape)
@@ -139,7 +139,7 @@ for epoch in range(num_epochs):
     model.eval()
     validation_loss = 0.0
     with torch.no_grad():  ## No gradient so we dont update the weights and biases with test
-        for data_valid, targets_valid in val_loader:
+        for data_valid, targets_valid, sequences in val_loader:
             data_valid, targets_valid  = data_valid.to(device), targets_valid.to(device)
             
             targets_valid = targets_valid.float()
@@ -160,10 +160,10 @@ for epoch in range(num_epochs):
     avg_loss = epoch_loss / len(train_loader)  # Calculate average loss for the epoch
     avg_valid_loss = validation_loss / len(val_loader)
     
-    if avg_valid_loss < best_loss:
+    if abs(avg_valid_loss) < abs(best_loss):
         best_loss = avg_valid_loss
         torch.save(model.state_dict(), best_model_path)
         print(f'Best model saved with loss: {best_loss:.4f}')
     end_time = time.time()
     time_taken = end_time - start_time
-    print('Epoch [{}/{}], Train Loss: {} , Validation Loss : {} , Time Taken : {}'.format(epoch+1, num_epochs, avg_loss, avg_valid_loss, time_taken))dataloader
+    print('Epoch [{}/{}], Train Loss: {} , Validation Loss : {} , Time Taken : {}'.format(epoch+1, num_epochs, avg_loss, avg_valid_loss, time_taken))

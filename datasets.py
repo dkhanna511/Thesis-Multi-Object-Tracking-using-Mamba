@@ -116,6 +116,7 @@ class MOT20DatasetBB(Dataset):
         # Initialize data storage
         self.data = []
         self.targets = []
+        self.sequence_info = []  # To store sequence and frame info
 
         # Load the dataset
         self._load_data(path)
@@ -142,28 +143,30 @@ class MOT20DatasetBB(Dataset):
                 
                 # Extract bounding boxes (columns: [frame, id, left, top, width, height, conf, x, y, z])
                 bboxes = obj_data[:, 2:6]  # [left, top, width, height]
+                frame_nums = obj_data[:, 0]  # Extract frame numbers
                 
                 ### Converting the dataset format from MOT to YOL O , i.e. ( Center x, Center y, Width, Height)
                 bboxes[:, 0] = bboxes[:, 0] + bboxes[:,2]/2
                 bboxes[:, 1] = bboxes[:, 1] + bboxes[:,3]/2
                 # Normalize bounding boxes
-                bboxes[:, 0] /= self.image_width  # Normalize left
-                bboxes[:, 1] /= self.image_height  # Normalize top
+                bboxes[:, 0] /= self.image_width  # Normalize center x
+                bboxes[:, 1] /= self.image_height  # Normalize center_y
                 bboxes[:, 2] /= self.image_width  # Normalize width
                 bboxes[:, 3] /= self.image_height  # Normalize height
                 
-                # print(" bboxes are: ", bboxes)
                 # Skip sequences that are too short
                 if len(bboxes) <= self.window_size:
                     continue  
 
-                # Collect bounding boxes for input andMOT20DatasetBBoxes target pairs
+                # Collect bounding boxes for input and target pairs
                 for i in range(len(bboxes) - self.window_size):
                     input_bboxes = bboxes[i:i + self.window_size]  # Bounding boxes for the input window
                     target_bbox = bboxes[i + self.window_size]    # Next frame's bounding box as target
+                    frames_in_window = frame_nums[i:i + self.window_size + 1]  # Corresponding frames for input and target
                     
                     self.data.append(input_bboxes)
                     self.targets.append(target_bbox)
+                    self.sequence_info.append((seq, frames_in_window))  # Store sequence name and frame range
 
     def __len__(self):
         return len(self.data)
@@ -174,8 +177,8 @@ class MOT20DatasetBB(Dataset):
         """
         input_data = self.data[idx]
         target_data = self.targets[idx]
-        return torch.from_numpy(input_data.astype(float)), torch.from_numpy(target_data.astype(float))    
-    
+        seq_info = self.sequence_info[idx]
+        return torch.from_numpy(input_data.astype(float)), torch.from_numpy(target_data.astype(float)), seq_info    
 
 class MOT20DatasetOffset(Dataset):
     def __init__(self, path, window_size=10, image_dims = (1920, 1080)):
