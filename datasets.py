@@ -143,13 +143,16 @@ class MOT20DatasetBB(Dataset):
                 # Extract bounding boxes (columns: [frame, id, left, top, width, height, conf, x, y, z])
                 bboxes = obj_data[:, 2:6]  # [left, top, width, height]
                 
+                ### Converting the dataset format from MOT to YOL O , i.e. ( Center x, Center y, Width, Height)
+                bboxes[:, 0] = bboxes[:, 0] + bboxes[:,2]/2
+                bboxes[:, 1] = bboxes[:, 1] + bboxes[:,3]/2
                 # Normalize bounding boxes
                 bboxes[:, 0] /= self.image_width  # Normalize left
                 bboxes[:, 1] /= self.image_height  # Normalize top
                 bboxes[:, 2] /= self.image_width  # Normalize width
                 bboxes[:, 3] /= self.image_height  # Normalize height
                 
-                print(" bboxes are: ", bboxes)
+                # print(" bboxes are: ", bboxes)
                 # Skip sequences that are too short
                 if len(bboxes) <= self.window_size:
                     continue  
@@ -209,6 +212,7 @@ class MOT20DatasetOffset(Dataset):
                 # print(" object data is : ", obj_data)
                 # Extract bounding boxes (columns: [frame, id, left, top, width, height, conf, x, y, z])
                 bboxes = obj_data[:, 2:6]  # [left, top, width, height]
+                
                 
                 # Normalize bounding boxes
                 # bboxes[:, 0] /= self.image_width  # Normalize left

@@ -183,7 +183,7 @@ class BBoxLSTMModel(nn.Module):
     
 
 class FullModelMambaOffset(nn.Module):
-    def __init__(self, input_dim, embedding_dim, num_blocks, prediction_dim, mamba_type= "vanilla mamba"):
+    def __init__(self, input_dim, embedding_dim, num_blocks, prediction_dim, mamba_type= "bi mamba"):
         super(FullModelMambaOffset, self).__init__()
         self.mamba_type = mamba_type
         self.temporal_token_embedding = TemporalTokenEmbedding(input_dim, embedding_dim)
@@ -220,6 +220,7 @@ class FullModelMambaBBox(nn.Module):
         self.temporal_token_embedding = TemporalTokenEmbedding(input_dim, embedding_dim)
         self.vanilla_mamba_encoding_layer = VanillaMambaEncodingLayer(embedding_dim, num_blocks = 2)
         self.prediction_head = nn.Linear(embedding_dim, prediction_dim)
+        self.end_activation = nn.Sigmoid()
 
     def forward(self, x):
         x = self.temporal_token_embedding(x)
@@ -234,6 +235,7 @@ class FullModelMambaBBox(nn.Module):
         
         # We only want the last element prediction
         x = self.prediction_head(x[:, -1, :]) 
+        x = self.end_activation(x)   ## Adding this to keep the output between 0 and 1 since we're calculating GiOU loss
         
         # print(" x shape after  prediction head layer : ", x.shape)
         
