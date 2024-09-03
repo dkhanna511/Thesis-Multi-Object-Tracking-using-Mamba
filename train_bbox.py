@@ -9,9 +9,8 @@ from schedulars import CustomWarmupScheduler
 from datasets import MOT20DatasetBB
 # torch.manual_seed(3000)  ## Setting up a seed where to start the weights (somewhat)
 from torchvision.ops import generalized_box_iou_loss as GIOU_Loss
-import math
-import iou_calc
-
+# import iou_calc
+import wandb
 
 # Model parameters
 input_size = 4  # Bounding box has 4 coordinates: [x, y, width, height]
@@ -20,15 +19,18 @@ output_size = 4  # Output also has 4 coordinates
 num_layers = 1## For LSTM
 embedding_dim = 128 ## For Mamba
 num_blocks = 3 ## For Mamba
+
+# Training loop
 num_epochs = 20
-
 warmup_steps = 4000 ## This is for custom warmuo schedular
-
-
+batch_size = 64
+loss_fn = "MSE LOSS, GIOU LOSS" ## Just mentioning it here coz I have to add it in log file of wandb
+learning_rate = 0.001
+betas_adam = (0.9, 0.98)
+# optimizer_name = "Adam"
 # Define the split ratio
 train_ratio = 0.8
 val_ratio = 1 - train_ratio
-
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 # Initialize model
@@ -54,7 +56,7 @@ dataloader = DataLoader(dataset_mot_bbox, batch_size=64, shuffle=True)
 
 
 criterion = nn.MSELoss()  # Mean squared error loss
-optimizer = torch.optim.Adam(model.parameters(), lr=0.001, betas = (0.9, 0.98), )
+optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, betas = (0.9, 0.98), )
 # criterion2 = GIOU_Loss
 # Initialize model
 
@@ -86,12 +88,25 @@ lambda2 = 0.6
 import time
 print(" dataloader length is :", len(train_loader))
 # exit(0)
-best_model_path = "best_model_bbox.pth"
+best_model_path = "best_model_bbox_MOT17.pth"
 best_loss = float('inf')
 
 
-# Training loop
-num_epochs = 150
+# Initialize W&B
+wandb.init(
+    project='mamba-mot-bbox',   # Set your project name
+    config={                # Optional: set configurations
+        'epochs': num_epochs,
+        'batch_size': batch_size,
+        'learning_rate': learning_rate,
+        'betas' : betas_adam,
+        "loss_function": criterion.__class__.__name__,
+        'optimizer' : optimizer.__class__.__name__,
+        'architecture': model.__class__.__name__
+    }
+)   
+
+
 print(" Model used to training: ", model_used) ## This is just a sanity printing check so that I dont have to see which loss came from which model later on or re-train it
 for epoch in range(num_epochs):
     start_time = time.time()
@@ -165,5 +180,10 @@ for epoch in range(num_epochs):
         torch.save(model.state_dict(), best_model_path)
         print(f'Best model saved with loss: {best_loss:.4f}')
     end_time = time.time()
-    time_taken = end_time - start_time
+    time_taken = end_time - start_time  
+    wandb.log({'epoch': epoch + 1, 'training loss': avg_loss, 'validation loss': avg_valid_loss})
+
     print('Epoch [{}/{}], Train Loss: {} , Validation Loss : {} , Time Taken : {}'.format(epoch+1, num_epochs, avg_loss, avg_valid_loss, time_taken))
+    
+    
+wandb.finish()
