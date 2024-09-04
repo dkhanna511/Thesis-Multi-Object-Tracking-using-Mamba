@@ -4,7 +4,6 @@ import numpy as np
 
 from torch.utils.data import DataLoader, random_split
 
-import time
 from models_mamba import FullModelMambaBBox, BBoxLSTMModel
 from schedulars import CustomWarmupScheduler
 from datasets import MOTDatasetBB
@@ -12,6 +11,8 @@ from datasets import MOTDatasetBB
 from torchvision.ops import generalized_box_iou_loss as GIOU_Loss
 import iou_calc
 import wandb
+import time
+
 
 # Model parameters
 input_size = 4  # Bounding box has 4 coordinates: [x, y, width, height]
@@ -21,17 +22,20 @@ num_layers = 1## For LSTM
 embedding_dim = 128 ## For Mamba
 num_blocks = 3 ## For Mamba
 
+
 # Training loop
-num_epochs = 20
-warmup_steps = 4000 ## This is for custom warmuo schedular
+num_epochs = 150
+warmup_steps = 4000 ## This is for custom warmup schedular
 batch_size = 64
-loss_fn = "MSE LOSS, GIOU LOSS" ## Just mentioning it here coz I have to add it in log file of wandb
 learning_rate = 0.001
 betas_adam = (0.9, 0.98)
-# optimizer_name = "Adam"
+
+
+
 # Define the split ratio
 train_ratio = 0.8
 val_ratio = 1 - train_ratio
+
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
@@ -47,17 +51,17 @@ elif model_used == "LSTM":
     model = BBoxLSTMModel(input_size, hidden_size, output_size, num_layers).to(device)
 
 
-
-dataset_mot_bbox = MOTDatasetBB(path='MOT17/train', window_size=11)
+## Define the dataset
+dataset_mot_bbox = MOTDatasetBB(path='MOT20/train', window_size=11)
 
 
 print(" dataset[0] : ", dataset_mot_bbox[0])
 # Create a DataLoader
-dataloader = DataLoader(dataset_mot_bbox, batch_size=64, shuffle=True)
+dataloader = DataLoader(dataset_mot_bbox, batch_size=batch_size, shuffle=True)
 
 
 criterion = nn.MSELoss()  # Mean squared error loss
-optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, betas = betas_adam, )
+optimizer = torch.optim.Adam(model.parameters(), lr= learning_rate, betas = betas_adam, )
 # criterion2 = GIOU_Loss
 # Initialize model
 
@@ -70,14 +74,13 @@ val_size = len(dataset_mot_bbox) - train_size
 train_dataset, val_dataset = random_split(dataset_mot_bbox, [train_size, val_size])
 
 # Create DataLoaders for training and validation sets
-train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
-val_loader = DataLoader(val_dataset, batch_size=64, shuffle=False)
+train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 # for data, targets in train_loader:
 #     print(" data are : ", data)
 # dataset
 
 
-# dataloader = DataLoader(dataset, batch_size=64, shuffle=True)
 scheduler = CustomWarmupScheduler(optimizer, d_model = embedding_dim, warmup_steps = warmup_steps)
 lambda1 = 0.4
 lambda2 = 0.6
@@ -86,15 +89,15 @@ lambda2 = 0.6
 
 # warmup_scheduler = WarmupScheduler(optimizer, warmup_steps=4000, initial_lr=0.001, warmup_lr=1e-6)
 
+
 print(" dataloader length is :", len(train_loader))
 # exit(0)
-best_model_path = "best_model_bbox_MOT17.pth"
+best_model_path = "best_model_bbox_MOT20.pth"
 best_loss = float('inf')
-
 
 # Initialize W&B
 wandb.init(
-    project='mamba-mot17-bbox',   # Set your project name
+    project='mamba-mot20-bbox',   # Set your project name
     config={                # Optional: set configurations
         'epochs': num_epochs,
         'batch_size': batch_size,
@@ -109,39 +112,42 @@ wandb.init(
     )   
 
 
-
-
 print(" Model used to training: ", model_used) ## This is just a sanity printing check so that I dont have to see which loss came from which model later on or re-train it
 for epoch in range(num_epochs):
     start_time = time.time()
     epoch_loss = 0.0  # Initialize epoch_loss
-    epoch_giou_loss = 0.0
-    epoch_mse_loss = 0.0
-    
     model.train()
+    epoch_loss_mse = 0.0
+    epoch_loss_giou =0.0
     for inputs, targets, sequences in train_loader:
         # Move tensors to the configured device
         inputs, targets = inputs.to(device), targets.to(device)
         # print("shape of inputs is : ", inputs.shape)
         targets = targets.float()
+        # print(" targets are : ", targets)
         # Forward pass
         outputs = model(inputs.float())
-        
+        # print(" outputs are : ", outputs)
+        # print(" shape of outputs is : ", outputs.shape)
+        # print(" shape of targets is : ", targets.shape)
         loss_mse = criterion(outputs, targets)
-        loss_giou = iou_calc.giou_loss(outputs, targets)
+        loss_giou_func = iou_calc.giou_loss(outputs, targets)
         
-        total_loss = loss_mse + loss_giou
+        total_loss = loss_giou_func
+        # combined_loss = giou_weight * giou + mse_weight * mse
         
-        epoch_giou_loss += loss_giou
-        epoch_mse_loss +=loss_mse
-        
-        epoch_loss += total_loss  # Accumulate loss
-        
+        epoch_loss_giou +=loss_giou_func    
+        epoch_loss_mse +=loss_mse
+        epoch_loss += total_loss# Accumulate loss
         
         # Backward pass and optimization
         optimizer.zero_grad()
-        loss_giou.backward(retain_graph = True)
+        # loss_smooth_l1.backward()
+        loss_giou_func.backward(retain_graph = True)
         loss_mse.backward()
+        
+        # total_loss.backward()
+        
         optimizer.step()
         # Step the warmup scheduler
         # if warmup_scheduler.current_step < warmup_scheduler.warmup_steps:
@@ -152,6 +158,8 @@ for epoch in range(num_epochs):
         
         # Update the learning rate
         scheduler.step()
+    print(" MSE Loss : ", epoch_loss_mse/len(train_loader))
+    print(" GIOU Loss: ", epoch_loss_giou/len(train_loader))
     
     model.eval()
     validation_loss = 0.0
@@ -167,11 +175,8 @@ for epoch in range(num_epochs):
             loss_giou = iou_calc.giou_loss(prediction_offset, targets_valid)
         
             total_loss = loss_mse + loss_giou
-        
             validation_loss += total_loss
             
-    print("GIOU Loss : ", epoch_giou_loss/len(train_loader))
-    print("MSE Loss : ", epoch_mse_loss/len(train_loader))
     print("Accumulated training loss is : ", epoch_loss)
     avg_loss = epoch_loss / len(train_loader)  # Calculate average loss for the epoch
     avg_valid_loss = validation_loss / len(val_loader)
@@ -181,10 +186,9 @@ for epoch in range(num_epochs):
         torch.save(model.state_dict(), best_model_path)
         print(f'Best model saved with loss: {best_loss:.4f}')
     end_time = time.time()
-    time_taken = end_time - start_time  
+    time_taken = end_time - start_time
     wandb.log({'epoch': epoch + 1, 'training loss': avg_loss, 'validation loss': avg_valid_loss})
 
     print('Epoch [{}/{}], Train Loss: {} , Validation Loss : {} , Time Taken : {}'.format(epoch+1, num_epochs, avg_loss, avg_valid_loss, time_taken))
-    
     
 wandb.finish()

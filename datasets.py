@@ -108,10 +108,10 @@ class MambaMOTDataset(Dataset):
         return self.nS
 
 
-class MOT20DatasetBB(Dataset):
+class MOTDatasetBB(Dataset):
     def __init__(self, path, window_size=10, image_dims=(1920, 1080)):
         self.window_size = window_size
-        self.image_width, self.image_height = image_dims
+        # self.image_width, self.image_height = image_dims
 
         # Initialize data storage
         self.data = []
@@ -130,9 +130,23 @@ class MOT20DatasetBB(Dataset):
         
         for seq in sequences:
             gt_path = os.path.join(path, seq, "gt", "gt.txt")  # Path to ground truth file
+            seq_info_path = os.path.join(path, seq, "seqinfo.ini")
+            
+            with open(seq_info_path, 'r') as file:
+                for line in file.readlines():
+                    if "imWidth" in line:
+                        # print(" line is : ", line)
+                    
+                        image_width = int(line.split("=")[1])
+                    if "imHeight" in line:
+                        image_height = int(line.split("=")[1])
+                        
+            # print(" image height is  : {}, and type is : {} ".format(image_height, type(image_height)))
+            
+            
             if not os.path.exists(gt_path):
                 continue
-            
+            print("here")
             # Load ground truth data for the sequence
             gt_data = np.loadtxt(gt_path, delimiter=',')
             
@@ -149,10 +163,10 @@ class MOT20DatasetBB(Dataset):
                 bboxes[:, 0] = bboxes[:, 0] + bboxes[:,2]/2
                 bboxes[:, 1] = bboxes[:, 1] + bboxes[:,3]/2
                 # Normalize bounding boxes
-                bboxes[:, 0] /= self.image_width  # Normalize center x
-                bboxes[:, 1] /= self.image_height  # Normalize center_y
-                bboxes[:, 2] /= self.image_width  # Normalize width
-                bboxes[:, 3] /= self.image_height  # Normalize height
+                bboxes[:, 0] /= image_width  # Normalize center x
+                bboxes[:, 1] /= image_height  # Normalize center_y
+                bboxes[:, 2] /= image_width  # Normalize width
+                bboxes[:, 3] /= image_height  # Normalize height
                 
                 # Skip sequences that are too short
                 if len(bboxes) <= self.window_size:
@@ -167,6 +181,7 @@ class MOT20DatasetBB(Dataset):
                     self.data.append(input_bboxes)
                     self.targets.append(target_bbox)
                     self.sequence_info.append((seq, frames_in_window))  # Store sequence name and frame range
+                    # print("yoooo")
 
     def __len__(self):
         return len(self.data)
@@ -254,22 +269,22 @@ class MOT20DatasetOffset(Dataset):
 # Usage example
 
 if __name__  == '__main__':
-    root_dir = 'MOT17/train'
+    root_dir = 'MOT20/train'
     
     # Sample verification
-    dataset = MOT20DatasetOffset(path=root_dir)
-    for i in range(len(dataset)):
+    dataset = MOTDatasetBB(path=root_dir)
+    # for i in range(len(dataset)):
         # try:
-        input_frames, target_frame = dataset[i]
+        # input_frames, target_frame, sequences = dataset[i]
             # print(f"Sample {i}: input_frames shape: {input_frames.shape}, target_frame shape: {target_frame.shape}")
         # except Exception as e:
             # print(f"Error at index {i}: {e}")# print(input_frames.shape, target_frame.shape)
     # print("target is : ", target_frame)
         # print(" input shape is : ", input_frames.shape)
         # print("target shape is : ", target_frame.shape)
-        if i == 1200:
-            print(input_frames)
-            print(target_frame)
-            exit(0)
+        # if i == 1200:
+        #     print(input_frames)
+        #     print(target_frame)
+        #     exit(0)
 
 
