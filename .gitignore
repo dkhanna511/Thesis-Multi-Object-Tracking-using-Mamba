@@ -1,4 +1,81 @@
-MOT17/
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
 
+# C extensions
+*.so
+
+# Virtual environment
+venv/
+env/
+.venv/
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+*.wheel
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+.pytest_cache/
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pyenv
+.python-version
+
+# mypy
+.mypy_cache/
+
+# pyright
+.pyright/
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# PyCharm
+.idea/
+*.iml
+
+# MacOS
+.DS_Store
+
+# Logs
+logs/
+*.log
+
+# Temporary files
+*.tmp
+*.swp
+
+# Ignore specific data or configuration files
+config.yaml
+credentials.json
+
+# Custom ignore patterns
+MOT17/
+MOT20/
+dancetrack/
+models_trained/
+
+
+### models store in root_dir
 *.pth
-./Bytetrack

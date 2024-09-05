@@ -13,6 +13,11 @@ from torchvision.ops import generalized_box_iou_loss as GIOU_Loss
 import iou_calc
 import wandb
 
+
+### Dataset parameters
+window_size = 10
+
+
 # Model parameters
 input_size = 4  # Bounding box has 4 coordinates: [x, y, width, height]
 hidden_size = 64 ## This one is used for LSTM NEtwork which I tried
@@ -48,7 +53,7 @@ elif model_used == "LSTM":
 
 
 
-dataset_mot_bbox = MOTDatasetBB(path='MOT17/train', window_size=11)
+dataset_mot_bbox = MOTDatasetBB(path='MOT17/train', window_size=window_size)
 
 
 print(" dataset[0] : ", dataset_mot_bbox[0])
@@ -62,7 +67,7 @@ optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, betas = betas
 # Initialize model
 
 
-# Calculate the number of samples for training and validationwindow_size
+# Calculate the number of samples for training and validation
 train_size = int(train_ratio * len(dataset_mot_bbox))
 val_size = len(dataset_mot_bbox) - train_size
 
