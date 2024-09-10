@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from torch.utils.data import DataLoader
 from torchvision.transforms import functional as F
-from models_mamba import FullModelMambaBBox
+from models_mamba import FullModelMambaBBox, BBoxLSTMModel
 import torch
 import torch.nn as nn
 from datasets import MOTDatasetBB
@@ -32,7 +32,7 @@ def denormalize_bbox(bbox, image_width, image_height):
     
     return bbox
 
-def visualize_tracking(dataloader, model, root_dir, device, image_dims=(1920, 1080)):
+def visualize_tracking(dataloader, model, root_dir, device, window_size, model_type, image_dims=(1920, 1080)):
     """
     Visualize tracking predictions alongside ground truth.
     
@@ -44,11 +44,14 @@ def visualize_tracking(dataloader, model, root_dir, device, image_dims=(1920, 10
     model.eval()
     image_width, image_height = image_dims
     num_batches = len(dataloader)
+    print(" window_size is ", window_size)
+    # exit(0)
+    
     with torch.no_grad():
         frame_data = {}
         for batch_index, (inputs, targets, seq_info) in enumerate(dataloader):
             inputs, targets = inputs.float().to(device), targets.float().to(device)
-
+            # print(" shape of inputs is :", inputs.shape)
             # Predict using the model
             predictions = model(inputs)
             print("batches done : {} / {}".format(batch_index, num_batches))
@@ -136,7 +139,7 @@ def visualize_tracking(dataloader, model, root_dir, device, image_dims=(1920, 10
             # cv2.imshow(f"Tracking Visualization: {seq_name}", image)
             # cv2.waitKey(100)  # Adjust for slower or faster visualization
             # Optionally, save the frame to disk:
-            save_dir = f"visualizations/{seq_name}"
+            save_dir = f"visualizations_{model_type}_{window_size}/{root_dir.split('/')[0]}/{seq_name}"
             if not os.path.exists(save_dir):
                 os.makedirs(save_dir)
                 
@@ -153,9 +156,9 @@ def main():
     # Add arguments
     parser.add_argument('--dataset', type=str, required=True, help="Path to the dataset file.")
     parser.add_argument('--window_size', type = int, default = 10, required = False, help = "Window size of sequence for tracklets")
+    parser.add_argument('--model_type', type=str, choices = ["bi-mamba", "vanilla-mamba", "LSTM"], required = True, help = "model selection for testing" )
     # Parse the arguments
     args = parser.parse_args()
-
 
     ## Dataset parameters
     
@@ -163,7 +166,7 @@ def main():
     input_size = 4  # Bounding box has 4 coordinates: [x, y, width, height]
     hidden_size = 64 ## This one is used for LSTM NEtwork which I tried
     output_size = 4  # Output also has 4 coordinates
-    num_layers = 1## For LSTM
+    num_layers = 4## For LSTM
     embedding_dim = 128 ## For Mamba
     num_blocks = 3 ## For Mamba
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -171,9 +174,10 @@ def main():
     # Load dataset and dataloader
     root_dir = args.dataset
     window_size = args.window_size
+    model_type = args.model_type
     
     train_path = os.path.join(root_dir, "train_copy_testing")
-    best_model_name = "best_model_bbox_{}.pth".format(root_dir)
+    best_model_name = "best_model_bbox_{}_{}.pth".format(root_dir, model_type)
     
     print("best model name is : ", best_model_name)
     print("train path is : ", train_path)
@@ -186,11 +190,17 @@ def main():
 
     # exit(0)
     # Load your trained model (ensure it's on the same device as your data)
-    model = FullModelMambaBBox(input_size,embedding_dim, num_blocks, output_size).to(device)
+    
+    if model_type == "bi-mamba" or model_type == "vanilla-mamba":
+        model = FullModelMambaBBox(input_size,embedding_dim, num_blocks, output_size, mamba_type =  model_type).to(device)
+    # exit(0)
+    else:
+        model = BBoxLSTMModel(input_size, hidden_size, output_size, num_layers).to(device)
+
     model.load_state_dict(torch.load(best_model_name))  # Load the best model
 
     # Visualize the tracking
-    visualize_tracking(dataloader, model, train_path, device)
+    visualize_tracking(dataloader, model, train_path, device, window_size, model_type)
 
 
     

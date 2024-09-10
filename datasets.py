@@ -146,7 +146,7 @@ class MOTDatasetBB(Dataset):
             
             if not os.path.exists(gt_path):
                 continue
-            print("here")
+            # print("here")
             # Load ground truth data for the sequence
             gt_data = np.loadtxt(gt_path, delimiter=',')
             
@@ -270,21 +270,21 @@ class MOT20DatasetOffset(Dataset):
 
 if __name__  == '__main__':
     root_dir = 'MOT20/train'
-    
     # Sample verification
     dataset = MOTDatasetBB(path=root_dir)
-    # for i in range(len(dataset)):
-        # try:
-        # input_frames, target_frame, sequences = dataset[i]
-            # print(f"Sample {i}: input_frames shape: {input_frames.shape}, target_frame shape: {target_frame.shape}")
-        # except Exception as e:
-            # print(f"Error at index {i}: {e}")# print(input_frames.shape, target_frame.shape)
-    # print("target is : ", target_frame)
-        # print(" input shape is : ", input_frames.shape)
-        # print("target shape is : ", target_frame.shape)
-        # if i == 1200:
-        #     print(input_frames)
-        #     print(target_frame)
-        #     exit(0)
+
+    for i in range(len(dataset)):
+        try:
+            input_frames, target_frame, sequences = dataset[i]
+            print(f"Sample {i}: input_frames shape: {input_frames.shape}, target_frame shape: {target_frame.shape}")
+        except Exception as e:
+            print(f"Error at index {i}: {e}")# print(input_frames.shape, target_frame.shape)
+        print("target is : ", target_frame)
+        print(" input shape is : ", input_frames.shape)
+        print("target shape is : ", target_frame.shape)
+        if i == 1200:
+            print(input_frames)
+            print(target_frame)
+            exit(0)
 
 

@@ -214,11 +214,13 @@ class FullModelMambaOffset(nn.Module):
     
 
 class FullModelMambaBBox(nn.Module):
-    def __init__(self, input_dim, embedding_dim, num_blocks, prediction_dim, mamba_type= "vanilla mamba"):
+    def __init__(self, input_dim, embedding_dim, num_blocks, prediction_dim, mamba_type):
         super(FullModelMambaBBox, self).__init__()
         self.mamba_type = mamba_type
         self.temporal_token_embedding = TemporalTokenEmbedding(input_dim, embedding_dim)
-        self.vanilla_mamba_encoding_layer = VanillaMambaEncodingLayer(embedding_dim, num_blocks = 2)
+        self.vanilla_mamba_encoding_layer = VanillaMambaEncodingLayer(embedding_dim, num_blocks)
+        self.bi_mamba_encoding_layer = BiMambaEncodingLayer(embedding_dim, num_blocks)
+
         self.prediction_head = nn.Linear(embedding_dim, prediction_dim)
         self.end_activation = nn.Sigmoid()
 
@@ -228,8 +230,11 @@ class FullModelMambaBBox(nn.Module):
         # print(' type of x is : ', type(x))
         # x  =  x.unsqueeze(0)
         # print(" x after reshaping it is : ", x.shape)
-        # if self.mamba_type == "vanilla mamba":
-        x = self.vanilla_mamba_encoding_layer(x)
+        if self.mamba_type == "vanilla-mamba":
+            x = self.vanilla_mamba_encoding_layer(x)
+        elif self.mamba_type == "bi-mamba":    
+            x = self.bi_mamba_encoding_layer(x)
+        
         # print(" x shape after  bimamba encoding layer is : ", x.shape)
         # x = self.prediction_head(x) ## This returns (batch, contect_window, 4) where 4 is the bounind box
         
