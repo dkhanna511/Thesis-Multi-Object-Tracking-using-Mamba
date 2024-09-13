@@ -124,7 +124,7 @@ def main(exp, args, num_gpu):
     # start tracking
     
     # exit(0)
-    *_, summary = evaluator.evaluate_ocsort(
+    *_, summary = evaluator.evaluate_mamba_track(
             model, is_distributed, args.fp16, trt_file, decoder, exp.test_size, results_folder
     )
     

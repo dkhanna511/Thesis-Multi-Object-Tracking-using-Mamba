@@ -243,14 +243,22 @@ class OCSort(object):
         """
             First round of association
         """
+        
+        
         matched, unmatched_dets, unmatched_trks = associate(
             dets, trks, self.iou_threshold, velocities, k_observations, self.inertia)
+        print(" matched tracklets are given as :", matched)
+        print("unmatched detections are given as :", unmatched_dets)
+        print("unmatcher tracklts are given as : ", unmatched_trks)
+        
         for m in matched:
             self.trackers[m[1]].update(dets[m[0], :])
 
         """
             Second round of associaton by OCR
         """
+        
+        
         # BYTE association
         if self.use_byte and len(dets_second) > 0 and unmatched_trks.shape[0] > 0:
             u_trks = trks[unmatched_trks]

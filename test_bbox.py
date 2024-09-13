@@ -176,12 +176,13 @@ def main():
     window_size = args.window_size
     model_type = args.model_type
     
-    train_path = os.path.join(root_dir, "train_copy_testing")
+    train_path = os.path.join("datasets", root_dir, "train_copy_testing")
     best_model_name = "best_model_bbox_{}_{}.pth".format(root_dir, model_type)
     
     print("best model name is : ", best_model_name)
     print("train path is : ", train_path)
     
+    exit(0)
     # Adjust path to your dataset
     dataset = MOTDatasetBB(train_path, window_size=window_size)
     dataloader = DataLoader(dataset, batch_size=1, shuffle=False, num_workers=4)
