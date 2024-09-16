@@ -233,9 +233,12 @@ class MOTEvaluator:
                 # init tracker
                 frame_id = info_imgs[2].item()
                 video_id = info_imgs[3].item()
+                # print("video id is : ", video_id)
+                
                 img_file_name = info_imgs[4]
                 video_name = img_file_name[0].split('/')[0]
-
+                # print("video name is ", video_name)
+                # exit(0)
                 if video_name not in video_names:
                     video_names[video_id] = video_name
                 if frame_id == 1:
@@ -246,27 +249,45 @@ class MOTEvaluator:
                         results = []
 
                 imgs = imgs.type(tensor_type)
+                # print(" images shape is : ", imgs.shape)
+                # exit(0)
 
                 # skip the the last iters since batchsize might be not enough for batch inference
                 is_time_record = cur_iter < len(self.dataloader) - 1
                 if is_time_record:
                     start = time.time()
 
+                print("imgs shape is ", imgs.shape)
+                # exit(0)
                 outputs = model(imgs)
+                
                 if decoder is not None:
                     outputs = decoder(outputs, dtype=outputs.type())
 
+                ### This output is is normal MOT Format after preprocessing, 
+                # but the results would be (800, 1440) width height result
                 outputs = postprocess(outputs, self.num_classes, self.confthre, self.nmsthre)
-            
+                
                 if is_time_record:
                     infer_end = time_synchronized()
                     inference_time += infer_end - start
     
             output_results = self.convert_to_coco_format(outputs, info_imgs, ids)
             data_list.extend(output_results)
-
+            
             # run tracking
+            # online_targets = tracker.update(outputs[0], info_imgs, self.img_size)
+            # image_size = imgs.shape[2:].cpu().to_
+            tensor_shape = imgs.shape
+            image_height = int(tensor_shape[3])  # 1440
+            image_width = int(tensor_shape[2])   # 800
+            image_size  = (image_width, image_height)   ## MAybe this is not used
+            # print(" now image shape is : ", image_size)
+            # exit(0)
+            print(" outputs is :", outputs[0].shape)
+            
             online_targets = tracker.update(outputs[0], info_imgs, self.img_size)
+            
             online_tlwhs = []
             online_ids = []
             online_scores = []

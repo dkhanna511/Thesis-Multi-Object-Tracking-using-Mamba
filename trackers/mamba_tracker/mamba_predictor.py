@@ -287,7 +287,7 @@ class MambaPredictor(object):
         self.embedding_dim = 128 ## For Mamba
         self.num_blocks = 3 ## For Mamba
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-        self.best_model_name = "best_model_bbox_dancetrack_vanilla-mamba.pth"
+        self.best_model_name = "same_window_size_models/best_model_bbox_dancetrack_vanilla-mamba.pth"
         
         
         if model_type == "bi-mamba" or model_type == "vanilla-mamba":
@@ -308,7 +308,7 @@ class MambaPredictor(object):
         return measurement
     
        
-    def denormalize_bbox(self, bboxes, image_width, image_height):
+    def denormalize_bbox(self, bboxes, img_size):
         """
         Denormalize bounding boxes to original scale. This converts it back to MOT Format as well. 
         """
@@ -324,11 +324,12 @@ class MambaPredictor(object):
         # return bbox
         # assert bboxes.shape[1:] == (4,), "Input bounding boxes should be in (center_x, center_y, width, height) format."
 
-    # Apply denormalization for each prediction
-        bboxes[:, 0] *= image_width   # Denormalize center_x
-        bboxes[:, 1] *= image_height  # Denormalize center_y
-        bboxes[:, 2] *= image_width   # Denormalize width
-        bboxes[:, 3] *= image_height  # Denormalize height
+        # Apply denormalization for each prediction
+        img_h, img_w = img_size          ### SETTING IMAGE SIZE LIKE THIS IS NOT A MISTAKE
+        bboxes[:, 0] *= img_w   # Denormalize center_x
+        bboxes[:, 1] *= img_h  # Denormalize center_y
+        bboxes[:, 2] *= img_w   # Denormalize width
+        bboxes[:, 3] *= img_h  # Denormalize height
 
         # Convert from (center_x, center_y, width, height) to (left, top, width, height)
         bboxes[:, 0] -= bboxes[:, 2] / 2  # left = center_x - width / 2
@@ -337,18 +338,25 @@ class MambaPredictor(object):
         return bboxes
         
         
-    def normalize_yolo_bbox(self, bboxes, image_width = 1920, image_height = 1080):
+    def normalize_yolo_bbox(self, bboxes, image_size):
         
         
+        print(" image size is : ", image_size)
         #### This function first converts the data from xywh format to YOLO Format, then nomralize it to process the model
+        img_h, img_w = image_size ### SETTIMG IMAGE SIZE LIKE THIS IS NOT A MISTAKE
         
+        print(" image width is : ", img_w)
+        print(" img height is : ", img_h)
         bboxes[:, 0] = bboxes[:, 0] + bboxes[:,2]/2
         bboxes[:, 1] = bboxes[:, 1] + bboxes[:,3]/2
+        
+        print(" yolo boundibg boxes without normalization", bboxes)
+        
         # Normalize bounding boxes
-        bboxes[:, 0] /= image_width  # Normalize center x
-        bboxes[:, 1] /= image_height  # Normalize center_y
-        bboxes[:, 2] /= image_width  # Normalize width
-        bboxes[:, 3] /= image_height  # Normalize height
+        bboxes[:, 0] /= img_w  # Normalize center x
+        bboxes[:, 1] /= img_h  # Normalize center_y
+        bboxes[:, 2] /= img_w  # Normalize width
+        bboxes[:, 3] /= img_h  # Normalize height
                 
         return bboxes
     
@@ -356,29 +364,28 @@ class MambaPredictor(object):
     
     
     
-    def multi_predict(self, tracklet_detection):
+    def multi_predict(self, tracklet_detections, img_size):
         
         # bounding_boxes = tracklet_detection[:4].copy()
-        print(" tracklet detections are : ", tracklet_detection)
+        print(" tracklet in the start is  : ", tracklet_detections)
         # tracklet_detection = tracklet_detection.unsqueeze(0)
         
-        tracklet_detections = self.normalize_yolo_bbox(tracklet_detection)
+        tracklet_detections = self.normalize_yolo_bbox(tracklet_detections, img_size)
         
-        print(" type of detection is :", type(tracklet_detections))
         tracklet_detections = torch.from_numpy(tracklet_detections).unsqueeze(1).float().to(self.device)
 
-        print(" shape of tracklet detections is : ", tracklet_detections.shape)
+        # print(" shape of tracklet detections is : ", tracklet_detections.shape)
+        print(" tracklet after yolo conversion is :", tracklet_detections)
         
         ### NOW, These tracklers could be of different length, (NOT HANDLING THAT RIGHT NOW)
         #### There can be many tracklets together. Need to deal with that. Lets see
         with torch.no_grad():
             predictions = self.model(tracklet_detections)
-            print(" predictions  is : ", predictions.shape)
-            print(" predictions type if : ", type(predictions))
-            predicted_bbox  = predictions[0].cpu().unsqueeze(0).numpy()
-            # print(" predicted_bbox is : ", predicted_bbox)
-            predicted_bbox = self.denormalize_bbox(predictions.cpu().numpy(), 1920, 1080)            
-            print(" predicted bounding shape box is :", predicted_bbox.shape)
+            # print(" predictions type if : ", type(predictions))
+            predicted_bbox  = predictions.cpu().numpy()
+            print(" predicted_bbox is : ", predicted_bbox)
+            predicted_bbox = self.denormalize_bbox(predictions.cpu().numpy(), img_size)            
+            # print(" predicted bounding shape box is :", predicted_bbox.shape)
         return predicted_bbox
         
         

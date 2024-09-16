@@ -4,7 +4,7 @@ import numpy as np
 import os
 from torch.utils.data import Dataset
 import glob
-
+import random
 
 class MambaMOTDataset(Dataset):
     def __init__(self, path, interval=None):
@@ -168,15 +168,20 @@ class MOTDatasetBB(Dataset):
                 bboxes[:, 2] /= image_width  # Normalize width
                 bboxes[:, 3] /= image_height  # Normalize height
                 
+                context_window  = random.randint(2, 10)
+                # context_window = 10
+                # print(" just checking how many times does it actually run, ", context_widow)
                 # Skip sequences that are too short
-                if len(bboxes) <= self.window_size:
+                
+                if len(bboxes) <= context_window:
                     continue  
-
+                
                 # Collect bounding boxes for input and target pairs
-                for i in range(len(bboxes) - self.window_size):
-                    input_bboxes = bboxes[i:i + self.window_size]  # Bounding boxes for the input window
-                    target_bbox = bboxes[i + self.window_size]    # Next frame's bounding box as target
-                    frames_in_window = frame_nums[i:i + self.window_size + 1]  # Corresponding frames for input and target
+                for i in range(len(bboxes) - context_window):
+                    # print("coming here?")
+                    input_bboxes = bboxes[i:i + context_window]  # Bounding boxes for the input window
+                    target_bbox = bboxes[i + context_window]    # Next frame's bounding box as target
+                    frames_in_window = frame_nums[i:i + context_window + 1]  # Corresponding frames for input and target
                     
                     self.data.append(input_bboxes)
                     self.targets.append(target_bbox)
@@ -269,7 +274,7 @@ class MOT20DatasetOffset(Dataset):
 # Usage example
 
 if __name__  == '__main__':
-    root_dir = 'MOT20/train'
+    root_dir = 'datasets/dancetrack/train'
     # Sample verification
     dataset = MOTDatasetBB(path=root_dir)
 
@@ -279,12 +284,12 @@ if __name__  == '__main__':
             print(f"Sample {i}: input_frames shape: {input_frames.shape}, target_frame shape: {target_frame.shape}")
         except Exception as e:
             print(f"Error at index {i}: {e}")# print(input_frames.shape, target_frame.shape)
-        print("target is : ", target_frame)
+        # print("target is : ", target_frame)
         print(" input shape is : ", input_frames.shape)
-        print("target shape is : ", target_frame.shape)
-        if i == 1200:
-            print(input_frames)
-            print(target_frame)
-            exit(0)
+        # print("target shape is : ", target_frame.shape)
+        # if i == 1200:
+        #     print(input_frames)
+        #     print(target_frame)
+        #     exit(0)
 
 

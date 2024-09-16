@@ -29,6 +29,14 @@ class STrack(BaseTrack):
         
         self.score = score
         self.tracklet_len = 0
+        self.tracklet = [] ## Store the sequence of past detections
+        # self.add_detection(bbox, score)
+        
+    
+    def add_detection(self, bbox, score):
+        self.tracklet.append((bbox, score))
+        if len(self.tracklet) > 10:
+            self.tracklet.pop(0)
 
     def predict(self):
         mean_state = self.mean.copy()
@@ -37,18 +45,18 @@ class STrack(BaseTrack):
         self.mean, self.covariance = self.kalman_filter.predict(mean_state, self.covariance)
 
     @staticmethod
-    def predict_mamba(stracks):
+    def predict_mamba(stracks, img_size):
         print("strack is : ", stracks)
         if len(stracks)  > 0:
             
             tracklets = np.asarray([st.prediction.copy() for st in stracks])
-            print(" length of tracklets are : ", tracklets)
+            # print(" length of tracklets are : ", tracklets)
             # for i, st in enumerate(stracks):
             #     if st.state != TrackState.Tracked:
             #         tracklets[i][4] = 0
                 
-            multi_prediction = STrack.mamba_predictor.multi_predict(tracklets)
-            print(" multi prediction is :", multi_prediction)
+            multi_prediction = STrack.mamba_predictor.multi_predict(tracklets, img_size)
+            # print(" multi prediction is :", multi_prediction)
             for i, multi_prediction in enumerate(multi_prediction):
                 stracks[i].prediction = multi_prediction
                 
@@ -80,7 +88,11 @@ class STrack(BaseTrack):
         self.mamba_prediction = mamba_prediction
         self.track_id = self.next_id()
         # self.mean, self.covariance = self.kalman_filter.initiate(self.tlwh_to_xyah(self._tlwh))
-        self.prediction = self.mamba_prediction.initiate(self.tlwh_to_xyah(self._tlwh))
+        # print("This top left width height is : ", self._tlwh)
+        # print(self.)
+        ## The format is already top, left, width, height. No need to change it further to aspect ratio thing as done in kalman filter code.
+        self.prediction = self.mamba_prediction.initiate(self._tlwh)
+        print("prediction initiation is :", self.prediction)
         self.tracklet_len = 0
         self.state = TrackState.Tracked
         if frame_id == 1:
@@ -142,8 +154,8 @@ class STrack(BaseTrack):
         self.tracklet_len += 1
 
         new_tlwh = new_track.tlwh
-        self.mean, self.covariance = self.kalman_filter.update(
-            self.mean, self.covariance, self.tlwh_to_xyah(new_tlwh))
+        self.mean, self.covariance = self.kalman_filter.update(self.mean, self.covariance, self.tlwh_to_xyah(new_tlwh))
+        
         self.state = TrackState.Tracked
         self.is_activated = True
 
@@ -161,7 +173,7 @@ class STrack(BaseTrack):
         self.frame_id = frame_id
         self.tracklet_len += 1
 
-        # new_tlwh = new_track.tlwh
+        new_tlwh = new_track.tlwh
         # self.mean, self.covariance = self.kalman_filter.update(
         #     self.mean, self.covariance, self.tlwh_to_xyah(new_tlwh))
         # self.prediction = self.mamba_prediction.update(self.prediction)
@@ -245,6 +257,22 @@ class MambaTracker(object):
         self.kalman_filter = KalmanFilter()
         self.mamba_prediction_cl = MambaPredictor(model_type = "vanilla-mamba")
 
+    def normalize_bounding_boxes(self, bboxes, img_w, img_h):
+        
+        #### This function first converts the data from xywh format to YOLO Format, then nomralize it to process the model
+        
+        bboxes[:, 0] = bboxes[:, 0] + bboxes[:,2]/2
+        bboxes[:, 1] = bboxes[:, 1] + bboxes[:,3]/2
+        # Normalize bounding boxes
+        
+        bboxes[:, 0] /= img_w  # Normalize center x
+        bboxes[:, 1] /= img_h  # Normalize center_y
+        bboxes[:, 2] /= img_w  # Normalize width
+        bboxes[:, 3] /= img_h  # Normalize height
+                
+        return bboxes
+    
+        
     def update(self, output_results, img_info, img_size):
         self.frame_id += 1
         activated_starcks = []
@@ -261,6 +289,9 @@ class MambaTracker(object):
             bboxes = output_results[:, :4]  # x1y1x2y2
         img_h, img_w = img_info[0], img_info[1]
         scale = min(img_size[0] / float(img_h), img_size[1] / float(img_w))
+    
+        #### THESE ARE NORMALIZED YOLO FORMAT BOUNDING BOXES
+        # bboxes = self.normalize_bounding_boxes(bboxes, img_w, img_h)
         bboxes /= scale
 
         remain_inds = scores > self.args.track_thresh
@@ -275,11 +306,14 @@ class MambaTracker(object):
 
         if len(dets) > 0:
             '''Detections'''
+            ###  DETECTIONS ARE GETTING CONVERTED TO TOP LEFT WIDTH HEIGHT FORMAT
             detections = [STrack(STrack.tlbr_to_tlwh(tlbr), s) for
                           (tlbr, s) in zip(dets, scores_keep)]
         else:
             detections = []
 
+        #####  KEEP IN MIND THESE ARE DETS, NOT DETECTIONS, SO THEY ARE IN TOP LEFT BOTTOM RIGHT FORMAT 
+        print(" detections are : ", dets)
         ''' Add newly detected tracklets to tracked_stracks'''
         unconfirmed = []
         tracked_stracks = []  # type: list[STrack]
@@ -294,7 +328,7 @@ class MambaTracker(object):
         # Predict the current location with KF
         
         ########### WILL HAVE THE MAKE THE CHANGES HERE ############ REPLACE THE MULTI PREDICT FUNCTIONS WITH MY THINGS
-        STrack.predict_mamba(strack_pool)
+        STrack.predict_mamba(strack_pool, img_size)
         
         # STrack.multi_predict(strack_pool)
         dists = matching.iou_distance(strack_pool, detections)
@@ -316,6 +350,7 @@ class MambaTracker(object):
 
         ''' Step 3: Second association, with low score detection boxes'''
         # association the untrack to the low score detections
+        # print("SECOND ASSOCIATION WITH LOW CONFIDENCE SCORES")
         if len(dets_second) > 0:
             '''Detections'''
             detections_second = [STrack(STrack.tlbr_to_tlwh(tlbr), s) for
@@ -331,7 +366,6 @@ class MambaTracker(object):
         print("SECOND TIME ASSOCIATIONS")
         print(" matches : {}, unmatched tracked : {}, unmatched detections : {}".format(matches, u_track, u_detection))
 
-        
         
         for itracked, idet in matches:
             track = r_tracked_stracks[itracked]
@@ -376,6 +410,8 @@ class MambaTracker(object):
             track.activate_mamba(self.mamba_prediction_cl, self.frame_id)
             activated_starcks.append(track)
         """ Step 5: Update state"""
+        
+        print("UPDATE STATS (DOING SOMETHING WITH LOST TRACKS)")
         for track in self.lost_stracks:
             if self.frame_id - track.end_frame > self.max_time_lost:
                 track.mark_removed()
@@ -393,7 +429,7 @@ class MambaTracker(object):
         self.tracked_stracks, self.lost_stracks = remove_duplicate_stracks(self.tracked_stracks, self.lost_stracks)
         # get scores of lost tracks
         output_stracks = [track for track in self.tracked_stracks if track.is_activated]
-
+        # print("output stracks at the end of function is : ", output_stracks)
         return output_stracks
 
 

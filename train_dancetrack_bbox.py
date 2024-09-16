@@ -13,8 +13,23 @@ import iou_calc
 import wandb
 import time
 import argparse
+from torch.nn.utils.rnn import pad_sequence
 
-
+# Custom collate function for handling batches with variable-length inputs
+def custom_collate_fn(batch):
+    # Split the batch into inputs, sequence_names, and targets
+    inputs, targets, sequence_names = zip(*batch)
+    # print("input shape is : ", inputs.shape)
+    # Pad the inputs (they are assumed to be lists of tensors or tensors themselves)
+    # Find the maximum length of the inputs
+    padded_inputs = pad_sequence(inputs, batch_first=True)
+    # print(" padded inputs", padded_inputs.shape)
+    # Convert the sequence_names and targets back to tensors if they are lists
+    # sequence_names = torch.stack(sequence_names)  # Assuming sequence_names are tensors
+    targets = torch.stack(targets)  # Assuming targets are tensors
+    
+    return padded_inputs, targets, sequence_names
+    
 
 def main():
     
@@ -23,7 +38,7 @@ def main():
 
     # Add arguments
     parser.add_argument('--dataset', type=str, required=True, help="Path to the dataset file.")
-    parser.add_argument('--window_size', type = int, default = 10, required = False, help = "Window size of sequence for tracklets")
+    parser.add_argument('--window_size', type = str, default = 10, required = False, help = "Window size of sequence for tracklets")
     parser.add_argument('--model_type', type=str, choices = ["bi-mamba", "vanilla-mamba", "LSTM"], required = True, help = "model selection for testing" )
     parser.add_argument('--epochs', type=int,  default = 50, required = False, help = "number of epochs")
     parser.add_argument('--batch_size', type=int,  default = 64, required = False, help = "Batch size")
@@ -40,7 +55,7 @@ def main():
 
 
 
-    # Model parameters
+    # Model parameterst
     input_size = 4  # Bounding box has 4 coordinates: [x, y, width, height]
     hidden_size = 64 ## This one is used for LSTM NEtwork which I tried
     output_size = 4  # Output also has 4 coordinates
@@ -75,15 +90,15 @@ def main():
 
 
     ## Define the dataset
-    dataset_train_bbox = MOTDatasetBB(path='dancetrack/train', window_size=window_size)
-    dataset_val_bbox = MOTDatasetBB(path="dancetrack/val", window_size = window_size)
+    dataset_train_bbox = MOTDatasetBB(path='datasets/dancetrack/train')
+    dataset_val_bbox = MOTDatasetBB(path="datasets/dancetrack/val")
 
     print(" dataset[0] : ", dataset_train_bbox[0])
 
 
     # Create DataLoaders for training and validation sets
-    train_loader = DataLoader(dataset_train_bbox, batch_size=batch_size, shuffle=True)
-    val_dataloader = DataLoader(dataset_val_bbox, batch_size = batch_size, shuffle = False)
+    train_loader = DataLoader(dataset_train_bbox, batch_size=batch_size, shuffle=True, collate_fn = custom_collate_fn)
+    val_dataloader = DataLoader(dataset_val_bbox, batch_size = batch_size, shuffle = False, collate_fn = custom_collate_fn)
 
 
     criterion = nn.MSELoss()  # Mean squared error loss
@@ -115,6 +130,7 @@ def main():
     if args.run_wandb:
         wandb.init(
             project='mamba-dancetrack-bbox',   # Set your project name
+            name =  model_used + "_ep_" + str(num_epochs) + "_ws_" +  window_size,
             config={                # Optional: set configurations
                 'epochs': num_epochs,
                 'batch_size': batch_size,
@@ -139,7 +155,10 @@ def main():
         epoch_loss_giou =0.0
         for inputs, targets, sequences in train_loader:
             # Move tensors to the configured device
-            inputs, targets = inputs.to(device), targets.to(device)
+            # print("inputs shape is :", inputs)
+            inputs = inputs.to(device)
+            targets = targets.to(device)
+            # inputs, targets = inputs.to(device), targets.to(device)
             # print("shape of inputs is : ", inputs.shape)
             targets = targets.float()
             # print(" targets are : ", targets)
