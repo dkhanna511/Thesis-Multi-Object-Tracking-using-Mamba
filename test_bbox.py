@@ -10,8 +10,9 @@ from PIL import Image
 import os
 import cv2
 import argparse
+import glob
 
-
+import time
 def load_image(image_path):
     """Load an image from a given path."""
     return Image.open(image_path).convert('RGB')
@@ -42,6 +43,7 @@ def visualize_tracking(dataloader, model, root_dir, device, window_size, model_t
     :param image_dims: Tuple of image dimensions (width, height).
     """
     model.eval()
+    print(" root dir is : ", root_dir)
     image_width, image_height = image_dims
     num_batches = len(dataloader)
     print(" window_size is ", window_size)
@@ -52,11 +54,18 @@ def visualize_tracking(dataloader, model, root_dir, device, window_size, model_t
         for batch_index, (inputs, targets, seq_info) in enumerate(dataloader):
             inputs, targets = inputs.float().to(device), targets.float().to(device)
             # print(" shape of inputs is :", inputs.shape)
+            # print("input is : ", inputs)
             # Predict using the model
+            # print(" seq info is : ", seq_info)
+            # print(" inputs shape is : ", inputs.shape)    
             predictions = model(inputs)
+            # print("predictions are : ", predictions)
+            # print("targets are : ", targets)
             print("batches done : {} / {}".format(batch_index, num_batches))
+            # print("predictions shape if : ", predictions.shape)
             # for i, (seq_name, frames) in enumerate(seq_info):
             seq_name  = seq_info[0][0]
+            # print("sequence name is : ", seq_name)
             # frames = seq_info[1]
                 # Denormalize bounding boxes for visualization
             # predicted_bbox = predictions.detach().cpu().unsqueeze(0).numpy()     
@@ -75,20 +84,24 @@ def visualize_tracking(dataloader, model, root_dir, device, window_size, model_t
                     if "imHeight" in line:
                         image_height = int(line.split("=")[1])
             
-            # print(" image width is : ", image_width)
-            # print(" image height is : ", image_height)
+            print(" image width is : ", image_width)
+            print(" image height is : ", image_height)
 
+            print("seq_info[1] : ", seq_info[1])
             for i, frames in enumerate(seq_info[1]):
-                # print("inputs are : ", inputs[i])
+                # print(" frames are : ", frames)
+                # print("inputs[i] are : ", inputs[i])
+                # print(" inputs are : ", inputs)
+                # print("i is : ", i)
                 input_bboxes = denormalize_bbox(inputs[i].cpu().numpy(), image_width, image_height)
                 target_bbox = denormalize_bbox(targets[i].cpu().unsqueeze(0).numpy(), image_width, image_height)
                 predicted_bbox = denormalize_bbox(predictions[i].cpu().unsqueeze(0).numpy(), image_width, image_height)
-
+                # print(" predictions shape is ", predictions[i].shape)
                 # print(" target bbox is : ", target_bbox)
                 # print(" prediction bbox is : ", predicted_bbox)
                 # seq_path = os.path.join(root_dir, seq_name, "img1")  # Assuming images are in img1 folder
                 frame_start = int(frames[0].item())  # Starting frame number
-
+                # print("frame start is : ", frame_start)
                  # Use (sequence, frame_number) as a unique key for the frame data
                 for j, bbox in enumerate(input_bboxes):
                     frame_number = frame_start + j
@@ -103,15 +116,21 @@ def visualize_tracking(dataloader, model, root_dir, device, window_size, model_t
                 frame_key = (seq_name, frame_number)
                 frame_data[frame_key].append(('target', target_bbox[0]))
                 frame_data[frame_key].append(('predicted', predicted_bbox[0]))
+                # print("frame data is : ", frame_data)
 
+            # print("\n\n")
+            
         
+        
+        print("frame_data is : ", frame_data)
         # Visualization of all frames with their respective bounding boxes
         for (seq_name, frame_number), bboxes in sorted(frame_data.items()):
-            if root_dir.split('/')[0] == "dancetrack":
+            # print(" root dir is :", root_dir)
+            if "dancetrack" in root_dir.split("/"):
                 frame_path = os.path.join(root_dir, seq_name, "img1", f"{frame_number:08d}.jpg")
             else:
                 frame_path = os.path.join(root_dir, seq_name, "img1", f"{frame_number:06d}.jpg")
-            print(" frame path is : ", frame_path)
+            # print(" frame path is : ", frame_path)
             image = cv2.imread(frame_path)
 
             if image is None:
@@ -129,7 +148,7 @@ def visualize_tracking(dataloader, model, root_dir, device, window_size, model_t
                     color = (255, 0, 0)
                     cv2.rectangle(image, (int(left), int(top)),  (int(left + width), int(top + height)), color, 2)
 
-                elif bbox_type == 'predicted':  # Red for predicted
+                elif bbox_type == 'predicted':  # Black for predicted
                     color = (0, 0, 0)
 
                     cv2.rectangle(image, (int(left), int(top)), 
@@ -139,13 +158,48 @@ def visualize_tracking(dataloader, model, root_dir, device, window_size, model_t
             # cv2.imshow(f"Tracking Visualization: {seq_name}", image)
             # cv2.waitKey(100)  # Adjust for slower or faster visualization
             # Optionally, save the frame to disk:
-            save_dir = f"visualizations_{model_type}_{window_size}/{root_dir.split('/')[0]}/{seq_name}"
+            
+            save_dir = f"visualizations/{model_type}_{window_size}/{root_dir.split('/')[1]}/{seq_name}"
             if not os.path.exists(save_dir):
                 os.makedirs(save_dir)
                 
             print("here??")
                 
             cv2.imwrite(f"{save_dir}/{frame_number:06d}.jpg", image)
+        
+        
+        # saved_dir = os.listdir("visualizations/{}_{}/{}")
+        sequence_main = "visualizations/{}_{}/{}".format(model_type, window_size, root_dir.split("/")[1])
+        saved_dir = os.listdir(sequence_main)
+        print(saved_dir)
+
+        for sequence in os.listdir(sequence_main):
+            print(" Reaching sequence : ", sequence)
+            sequence_images = sorted(glob.glob(os.path.join(sequence_main, sequence)   +"/" +  "*.jpg"))
+            print("sequences images are : ", sequence_images)
+            # break
+            print(" sequence images are : ", sequence_images[0])
+            frame = cv2.imread(sequence_images[0])
+            height, width, layers = frame.shape
+            # cv2.imshow("frame", frame)
+            # cv2.waitKey(5000)
+            # print("frame is : ", frame)
+            size = (width, height)
+            output_video_name = "{}.mp4".format(sequence)
+            print("output video name : ", output_video_name)
+            output_video_path = os.path.join(sequence_main, output_video_name)
+            
+            # Define the video writer object
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # Codec for .mp4
+            fps = 10  # Frames per second
+            out = cv2.VideoWriter(output_video_path, fourcc, fps, size)
+            
+            for image in sequence_images:
+                img = cv2.imread(image)
+                out.write(img)
+        
+            out.release()     
+
 
 
 
@@ -155,7 +209,7 @@ def main():
 
     # Add arguments
     parser.add_argument('--dataset', type=str, required=True, help="Path to the dataset file.")
-    parser.add_argument('--window_size', type = int, default = 10, required = False, help = "Window size of sequence for tracklets")
+    parser.add_argument('--window_size', type = str, default = 10, required = False, help = "Window size of sequence for tracklets")
     parser.add_argument('--model_type', type=str, choices = ["bi-mamba", "vanilla-mamba", "LSTM"], required = True, help = "model selection for testing" )
     # Parse the arguments
     args = parser.parse_args()
@@ -177,12 +231,12 @@ def main():
     model_type = args.model_type
     
     train_path = os.path.join("datasets", root_dir, "train_copy_testing")
-    best_model_name = "best_model_bbox_{}_{}.pth".format(root_dir, model_type)
-    
-    print("best model name is : ", best_model_name)
+    # best_model_name = "best_model_bbox_{}_{}.pth".format(root_dir, model_type)
+    best_model_name = "best_model_bbox_dancetrack_bi-mamba_50.pth"
+    # print("best model name is : ", best_model_name)
     print("train path is : ", train_path)
     
-    exit(0)
+    # exit(0)
     # Adjust path to your dataset
     dataset = MOTDatasetBB(train_path, window_size=window_size)
     dataloader = DataLoader(dataset, batch_size=1, shuffle=False, num_workers=4)
