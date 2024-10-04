@@ -58,11 +58,12 @@ class CustomWarmupScheduler:
     def step(self):
         """Update the learning rate based on the current step."""
         self.current_step += 1
-        lr = self.compute_lr()
-
+        if self.current_step > self.warmup_steps:
+            lr = self.compute_lr()
+        
         # Update optimizer learning rate
-        for param_group in self.optimizer.param_groups:
-            param_group['lr'] = lr
+            for param_group in self.optimizer.param_groups:
+                param_group['lr'] = lr
 
     def compute_lr(self):
         """Compute the learning rate using the formula."""
@@ -73,10 +74,19 @@ class CustomWarmupScheduler:
 
 
 # Example usage
-# d_model = embedding_dim  # Token dimension size (input token size)
-# warmup_steps = 4000
+if __name__ == '__main__':
+    
 
-# model = torch.nn.Linear(d_model, d_model)  # Example model
-# optimizer = torch.optim.Adam(model.parameters(), lr=1e-3, betas=(0.9, 0.98), eps=1e-8)
+    d_model = 128  # Token dimension size (input token size)
+    warmup_steps = 4000
 
-# scheduler = CustomWarmupScheduler(optimizer, d_model, warmup_steps)
+    model = torch.nn.Linear(d_model, d_model)  # Example model
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3, betas=(0.9, 0.98), eps=1e-8)
+
+    scheduler = CustomWarmupScheduler(optimizer, d_model, warmup_steps)
+    
+    
+    for  batch in range(1000):
+        scheduler.step()
+        
+        

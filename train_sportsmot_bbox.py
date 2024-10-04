@@ -9,10 +9,15 @@ from schedulars import CustomWarmupScheduler
 from datasets import MOTDatasetBB
 # torch.manual_seed(3000)  ## Setting up a seed where to start the weights (somewhat)
 from torchvision.ops import generalized_box_iou_loss as GIOU_Loss
-import wandb
-import argparse
-import utils
 import iou_calc
+import wandb
+import time
+import argparse
+from torch.nn.utils.rnn import pad_sequence, pack_padded_sequence, pad_packed_sequence
+import utils
+
+
+
 
 def main():
     
@@ -20,14 +25,14 @@ def main():
     parser = argparse.ArgumentParser(description="A simple argument parser example.")
 
     # Add arguments
-    parser.add_argument('--dataset', type=str, required=True, help="Path to the dataset file.")
+    parser.add_argument('--dataset', type=str, required=True, choices = ["MOT20", "dancetrack", "sportsmot_publish"],  help="Path to the dataset file.")
     parser.add_argument('--window_size', type = str, default = 10, required = False, help = "Window size of sequence for tracklets")
     parser.add_argument('--model_type', type=str, choices = ["bi-mamba", "vanilla-mamba", "LSTM"], required = True, help = "model selection for testing" )
     parser.add_argument('--epochs', type=int,  default = 50, required = False, help = "number of epochs")
     parser.add_argument('--batch_size', type=int,  default = 64, required = False, help = "Batch size")
     parser.add_argument('--run_wandb', action="store_true",  help = "Log the training in wandb or not")
     parser.add_argument('--save_model', action="store_true",  help = "Save the model or not(no in case you're just testing something)")
-    parser.add_argument('--device', type = str, required = True, help = "Save the model or not(no in case you're just testing something)")
+    parser.add_argument('--device', type = str, required = True ,  help = "Mention cuda device : cuda:0 Or cuda:1)")
     
         
     # Parse the arguments
@@ -52,13 +57,17 @@ def main():
     num_epochs = args.epochs
     warmup_steps = 4000 ## This is for custom warmup schedular
     batch_size = 64
-    learning_rate = 0.0001
+    learning_rate = 0.001
     lambda_criterion, lambda_criterion_2 = 50, 1
     betas_adam = (0.9, 0.98)
 
 
-    # device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-    device = args.device
+    # Define the split ratio
+    train_ratio = 0.8
+    val_ratio = 1 - train_ratio
+
+    device = torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')
+
 
     # Initialize model
     model_used = args.model_type
@@ -71,8 +80,8 @@ def main():
 
 
     ## Define the dataset
-    dataset_train_bbox = MOTDatasetBB(path='datasets/dancetrack/train', window_size = window_size)
-    dataset_val_bbox = MOTDatasetBB(path="datasets/dancetrack/val", window_size = window_size)
+    dataset_train_bbox = MOTDatasetBB(path='datasets/sportsmot_publish/train', window_size = window_size)
+    dataset_val_bbox = MOTDatasetBB(path="datasets/sportsmot_publish/val", window_size = window_size)
 
     print(" dataset[0] : ", dataset_train_bbox[0])
 
@@ -88,7 +97,7 @@ def main():
         val_dataloader = DataLoader(dataset_val_bbox, batch_size = batch_size, shuffle = False, collate_fn = utils.custom_collate_fn_fixed)
 
 
-    criterion = nn.SmoothL1Loss()  # Mean squared error loss
+    criterion = nn.MSELoss()  # Mean squared error loss
     criterion_2 = iou_calc.CIOU_Loss_Perplexity
 
     optimizer = torch.optim.Adam(model.parameters(), lr= learning_rate, betas = betas_adam, )
@@ -102,7 +111,9 @@ def main():
 
 
     scheduler = CustomWarmupScheduler(optimizer, d_model = embedding_dim, warmup_steps = warmup_steps)
-    
+    # lambda1 = 0.4
+    # lambda2 = 0.6
+
     # scheduler_after_warmup = StepLR(optimizer, step_size=30, gamma=0.1)
 
     # warmup_scheduler = WarmupScheduler(optimizer, warmup_steps=4000, initial_lr=0.001, warmup_lr=1e-6)
@@ -111,7 +122,6 @@ def main():
     print(" dataloader length is :", len(train_dataloader))
     # exit(0)
     
-    # Initialize W&B
     if args.run_wandb:
         wandb.init(
             project='mamba-dancetrack-bbox',   # Set your project name

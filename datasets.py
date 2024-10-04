@@ -112,7 +112,7 @@ class MOTDatasetBB(Dataset):
     def __init__(self, path, window_size=10, image_dims=(1920, 1080)):
         self.window_size = window_size
         # self.image_width, self.image_height = image_dims
-
+        self.path = path
         # Initialize data storage
         self.data = []
         self.targets = []
@@ -168,8 +168,13 @@ class MOTDatasetBB(Dataset):
                 bboxes[:, 2] /= image_width  # Normalize width
                 bboxes[:, 3] /= image_height  # Normalize height
                 
-                context_window  = random.randint(2, 10)
-                # context_window = 10
+                if self.window_size == "variable":
+                    if "dancetrack" in path.split("/") :
+                        context_window  = random.randint(2, 5)
+                    else:
+                        context_window  = random.randint(2, 10)
+                else:
+                    context_window = int(self.window_size)
                 # print(" just checking how many times does it actually run, ", context_widow)
                 # Skip sequences that are too short
                 
@@ -276,7 +281,7 @@ class MOT20DatasetOffset(Dataset):
 if __name__  == '__main__':
     root_dir = 'datasets/dancetrack/train'
     # Sample verification
-    dataset = MOTDatasetBB(path=root_dir)
+    dataset = MOTDatasetBB(path=root_dir, window_size = "variable")
 
     for i in range(len(dataset)):
         try:
@@ -285,7 +290,7 @@ if __name__  == '__main__':
         except Exception as e:
             print(f"Error at index {i}: {e}")# print(input_frames.shape, target_frame.shape)
         # print("target is : ", target_frame)
-        print(" input shape is : ", input_frames.shape)
+        print(" input shape is : \n", input_frames)
         # print("target shape is : ", target_frame.shape)
         # if i == 1200:
         #     print(input_frames)

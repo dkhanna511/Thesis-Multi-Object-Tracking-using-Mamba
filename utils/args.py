@@ -15,6 +15,8 @@ def make_parser():
     parser.add_argument("--local_rank", default=0, type=int, help="local rank for dist training")
     parser.add_argument( "--num_machines", default=1, type=int, help="num of node for training")
     parser.add_argument("--machine_rank", default=0, type=int, help="node rank for multi-node training")
+    parser.add_argument("--model_type", type=str, required = True, help="Model type")
+    parser.add_argument("--dataset_name", type=str, required = True, help="Dataset name")
 
     parser.add_argument(
         "-f", "--exp_file",
