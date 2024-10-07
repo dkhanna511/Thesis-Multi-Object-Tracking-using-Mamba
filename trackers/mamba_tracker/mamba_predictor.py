@@ -20,10 +20,6 @@ chi2inv95 = {
     9: 16.919}
 
 
-
-
-
-
 class KalmanFilter(object):
     """
     A simple Kalman filter for tracking bounding boxes in image space.
@@ -277,18 +273,23 @@ class KalmanFilter(object):
         
 
 class MambaPredictor(object):
-    def __init__(self, model_type):
+    def __init__(self, model_type, dataset_name):
         self.input_size = 4
         # Model parameters
+        self.model_type = model_type
+        self.dataset_name = dataset_name
         self.input_size = 4  # Bounding box has 4 coordinates: [x, y, width, height]
         self.hidden_size = 64 ## This one is used for LSTM NEtwork which I tried
         self.output_size = 4  # Output also has 4 coordinates
         self.num_layers = 4## For LSTM
         self.embedding_dim = 128 ## For Mamba
         self.num_blocks = 3 ## For Mamba
-        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-        self.best_model_name = "same_window_size_models/best_model_bbox_dancetrack_vanilla-mamba.pth"
+        self.device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+        # self.best_model_name  = "best_model_bbox_{}_variable_{}.pth".format(self.dataset_name, self.model_type)
+        self.best_model_name = "best_model_bbox_dancetrack_variable_bi-mamba_04_October.pth"
         
+        print("model type is :",model_type)
+        # exit(0)
         
         if model_type == "bi-mamba" or model_type == "vanilla-mamba":
             self.model = FullModelMambaBBox(self.input_size, self.embedding_dim, self.num_blocks, self.output_size, mamba_type =  model_type).to(self.device)
@@ -296,6 +297,7 @@ class MambaPredictor(object):
         else:
             self.model = BBoxLSTMModel(self.input_size, self.hidden_size, self.output_size, self.num_layers).to(self.device)
 
+        print(" model to be loaded is : ", self.best_model_name)
         self.model.load_state_dict(torch.load(self.best_model_name))  # Load the best model
 
 
@@ -323,9 +325,9 @@ class MambaPredictor(object):
         
         # return bbox
         # assert bboxes.shape[1:] == (4,), "Input bounding boxes should be in (center_x, center_y, width, height) format."
-
+        print("The image size used in DENORMALIZATION is: ", img_size)
         # Apply denormalization for each prediction
-        img_h, img_w = img_size          ### SETTING IMAGE SIZE LIKE THIS IS NOT A MISTAKE
+        img_h, img_w = img_size[0].item(), img_size[1].item()          ### SETTING IMAGE SIZE LIKE THIS IS NOT A MISTAKE
         bboxes[:, 0] *= img_w   # Denormalize center_x
         bboxes[:, 1] *= img_h  # Denormalize center_y
         bboxes[:, 2] *= img_w   # Denormalize width
@@ -341,41 +343,48 @@ class MambaPredictor(object):
     def normalize_yolo_bbox(self, bboxes, image_size):
         
         
-        print(" image size is : ", image_size)
+        # print(" image size is : ", image_size)
         #### This function first converts the data from xywh format to YOLO Format, then nomralize it to process the model
-        img_h, img_w = image_size ### SETTIMG IMAGE SIZE LIKE THIS IS NOT A MISTAKE
-        
-        print(" image width is : ", img_w)
-        print(" img height is : ", img_h)
-        bboxes[:, 0] = bboxes[:, 0] + bboxes[:,2]/2
-        bboxes[:, 1] = bboxes[:, 1] + bboxes[:,3]/2
-        
-        print(" yolo boundibg boxes without normalization", bboxes)
-        
-        # Normalize bounding boxes
-        bboxes[:, 0] /= img_w  # Normalize center x
-        bboxes[:, 1] /= img_h  # Normalize center_y
-        bboxes[:, 2] /= img_w  # Normalize width
-        bboxes[:, 3] /= img_h  # Normalize height
-                
+        img_h, img_w = image_size[0], image_size[1]  # Image dimensions (height, width)
+
+        print("image height and width used for normalization is : {} , {}".format(img_h, img_w))
+    # Convert xywh to center-based YOLO format by adjusting the (x, y) to be at the center
+        bboxes[..., 0] = bboxes[..., 0] + bboxes[..., 2] / 2  # Update x to center x
+        bboxes[..., 1] = bboxes[..., 1] + bboxes[..., 3] / 2  # Update y to center y
+
+        # Normalize the bounding boxes
+        bboxes[..., 0] /= img_w  # Normalize center x
+        bboxes[..., 1] /= img_h  # Normalize center y
+        bboxes[..., 2] /= img_w  # Normalize width
+        bboxes[..., 3] /= img_h  # Normalize height
+
         return bboxes
-    
     
     
     
     
     def multi_predict(self, tracklet_detections, img_size):
         
+        print("model name is : ", self.best_model_name)
+        print("model type is : ", self.model_type)
+        # exit(0)
+        
         # bounding_boxes = tracklet_detection[:4].copy()
-        print(" tracklet in the start is  : ", tracklet_detections)
+        # print(" tracklet shape in the start is  : ", tracklet_detections.shape)
         # tracklet_detection = tracklet_detection.unsqueeze(0)
-        
+        print(" tracklet before prediction is : ", tracklet_detections)
+
         tracklet_detections = self.normalize_yolo_bbox(tracklet_detections, img_size)
+        # print(" tracklet before prediction is : ", tracklet_detections)
         
-        tracklet_detections = torch.from_numpy(tracklet_detections).unsqueeze(1).float().to(self.device)
+        tracklet_detections = torch.from_numpy(tracklet_detections).float().to(self.device)
+        # print("tracklet before prediction shape is : ", tracklet_detections.shape)
+        
+        
+        # print("tracklet detection is : ", tracklet_detections)
 
         # print(" shape of tracklet detections is : ", tracklet_detections.shape)
-        print(" tracklet after yolo conversion is :", tracklet_detections)
+        # print(" tracklet after yolo conversion is :", tracklet_detections)
         
         ### NOW, These tracklers could be of different length, (NOT HANDLING THAT RIGHT NOW)
         #### There can be many tracklets together. Need to deal with that. Lets see
@@ -383,8 +392,12 @@ class MambaPredictor(object):
             predictions = self.model(tracklet_detections)
             # print(" predictions type if : ", type(predictions))
             predicted_bbox  = predictions.cpu().numpy()
-            print(" predicted_bbox is : ", predicted_bbox)
+            
+            # print(" predicted_bbox is : ", predicted_bbox)
+            print("image size is : ", img_size)
             predicted_bbox = self.denormalize_bbox(predictions.cpu().numpy(), img_size)            
+            
+            # exit(0)
             # print(" predicted bounding shape box is :", predicted_bbox.shape)
         return predicted_bbox
         
