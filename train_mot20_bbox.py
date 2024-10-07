@@ -13,7 +13,7 @@ import iou_calc
 import wandb
 import time
 import argparse
-import utils
+import training_utils
 
 
 def main():
@@ -91,8 +91,8 @@ def main():
     train_dataset, val_dataset = random_split(dataset_mot_bbox, [train_size, val_size])
 
     # Create DataLoaders for training and validation sets
-    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=utils.custom_collate_fn_fixed)
-    val_dataloader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, collate_fn= utils.custom_collate_fn_fixed)
+    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=training_utils.custom_collate_fn_fixed)
+    val_dataloader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, collate_fn= training_utils.custom_collate_fn_fixed)
     # for data, targets in train_loader:
     #     print(" data are : ", data)
     # dataset
@@ -134,9 +134,9 @@ def main():
 
 
     if args.window_size =="variable":
-        utils.train_var_window(args, model, train_dataloader, val_dataloader, configs)
+        training_utils.train_var_window(args, model, train_dataloader, val_dataloader, configs)
     else:
-        utils.train_const_window(args, model, train_dataloader, val_dataloader, configs)
+        training_utils.train_const_window(args, model, train_dataloader, val_dataloader, configs)
 
     # print(" Model used to training: ", model_used) ## This is just a sanity printing check so that I dont have to see which loss came from which model later on or re-train it
         

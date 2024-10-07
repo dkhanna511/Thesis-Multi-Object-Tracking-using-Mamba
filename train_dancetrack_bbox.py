@@ -11,7 +11,7 @@ from datasets import MOTDatasetBB
 from torchvision.ops import generalized_box_iou_loss as GIOU_Loss
 import wandb
 import argparse
-import utils
+import training_utils
 import iou_calc
 
 def main():
@@ -84,8 +84,8 @@ def main():
         val_dataloader = DataLoader(dataset_val_bbox, batch_size = batch_size, shuffle = False)
         # exit(0)
     else:
-        train_dataloader = DataLoader(dataset_train_bbox, batch_size=batch_size, shuffle=True, collate_fn = utils.custom_collate_fn_fixed)
-        val_dataloader = DataLoader(dataset_val_bbox, batch_size = batch_size, shuffle = False, collate_fn = utils.custom_collate_fn_fixed)
+        train_dataloader = DataLoader(dataset_train_bbox, batch_size=batch_size, shuffle=True, collate_fn = training_utils.custom_collate_fn_fixed)
+        val_dataloader = DataLoader(dataset_val_bbox, batch_size = batch_size, shuffle = False, collate_fn = training_utils.custom_collate_fn_fixed)
 
 
     criterion = nn.SmoothL1Loss()  # Mean squared error loss
@@ -136,9 +136,9 @@ def main():
     
 
     if args.window_size =="variable":
-        utils.train_var_window(args, model, train_dataloader, val_dataloader, configs)
+        training_utils.train_var_window(args, model, train_dataloader, val_dataloader, configs)
     else:
-        utils.train_const_window(args, model, train_dataloader, val_dataloader, configs)
+        training_utils.train_const_window(args, model, train_dataloader, val_dataloader, configs)
 
     # print(" Model used to training: ", model_used) ## This is just a sanity printing check so that I dont have to see which loss came from which model later on or re-train it
         
