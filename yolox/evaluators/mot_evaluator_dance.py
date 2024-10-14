@@ -2,8 +2,8 @@ from collections import defaultdict
 from loguru import logger
 from tqdm import tqdm
 # import models_mamba
-from models_mamba import FullModelMambaBBox
-from datasets import MambaMOTDataset
+# from models_mamba import FullModelMambaBBox
+# from datasets import MambaMOTDataset, MOTDatasetBB
 
 
 
@@ -187,7 +187,8 @@ class MOTEvaluator:
         trt_file=None,
         decoder=None,
         test_size=None,
-        result_folder=None
+        result_folder=None, 
+        model_type = None
     ):
         """
         COCO average precision (AP) Evaluation. Iterate inference on the test dataset
@@ -224,40 +225,53 @@ class MOTEvaluator:
             x = torch.ones(1, 3, test_size[0], test_size[1]).cuda()
             model(x)
             model = model_trt
-            
-        tracker = MambaTracker(self.args)
+            print("coming here??")
+
+        print(' OR Here?')
+        # exit(0) 
+        # tracker = MambaTracker(self.args)
+        tracker = None
+        print(" tracker is :", tracker)
+        # exit(0)
         for cur_iter, (imgs, _, info_imgs, ids) in enumerate(
             progress_bar(self.dataloader)
         ):
             with torch.no_grad():
                 # init tracker
                 frame_id = info_imgs[2].item()
+            
                 video_id = info_imgs[3].item()
                 # print("video id is : ", video_id)
-                
+                # print(" frame id  is : ", frame_id)
                 img_file_name = info_imgs[4]
                 video_name = img_file_name[0].split('/')[0]
                 # print("video name is ", video_name)
-                # exit(0)
                 if video_name not in video_names:
                     video_names[video_id] = video_name
                 if frame_id == 1:
+                    # print(" \nimage file name is : ", img_file_name)
+                
+                    # print("\nvideo name is : ", video_names)
                     tracker = MambaTracker(self.args)
+
                     if len(results) != 0:
                         result_filename = os.path.join(result_folder, '{}.txt'.format(video_names[video_id - 1]))
                         write_results(result_filename, results)
                         results = []
 
-                imgs = imgs.type(tensor_type)
-                # print(" images shape is : ", imgs.shape)
-                # exit(0)
+                    # print("\ntracked vals are :", tracker.frame_id)
+                    # print('\nresults are :', results)
 
+                imgs = imgs.type(tensor_type)
+                # print(" images shape is : ", imgs.shape) ### This gives shape of 800, 1440. Which means that in this img height and width, yolo returns its thing
+                # exit(0)
+                
                 # skip the the last iters since batchsize might be not enough for batch inference
                 is_time_record = cur_iter < len(self.dataloader) - 1
                 if is_time_record:
                     start = time.time()
 
-                print("imgs shape is ", imgs.shape)
+                # print("imgs shape is ", imgs.shape)
                 # exit(0)
                 outputs = model(imgs)
                 
@@ -283,8 +297,7 @@ class MOTEvaluator:
             image_width = int(tensor_shape[2])   # 800
             image_size  = (image_width, image_height)   ## MAybe this is not used
             # print(" now image shape is : ", image_size)
-            # exit(0)
-            print(" outputs is :", outputs[0].shape)
+            # print(" outputs is :", outputs[0])
             
             online_targets = tracker.update(outputs[0], info_imgs, self.img_size)
             
@@ -300,7 +313,12 @@ class MOTEvaluator:
                     online_scores.append(t.score)
             # save results
             results.append((frame_id, online_tlwhs, online_ids, online_scores))
+            # if frame_id ==1:
 
+                # print("\nonline ids", online_ids)
+                # print("\nonline scores : ", online_scores)
+                # print("\nfram ID : ", frame_id)
+                # print("onlin targets are : ", online_targets)
             if is_time_record:
                 track_end = time_synchronized()
                 track_time += track_end - infer_end
@@ -383,7 +401,7 @@ class MOTEvaluator:
                 frame_id = info_imgs[2].item()
                 video_id = info_imgs[3].item()
                 img_file_name = info_imgs[4]
-                print(" img file name is : ", img_file_name)
+                # print(" img file name is : ", img_file_name)
                 
                 video_name = img_file_name[0].split('/')[0]
                 
@@ -431,7 +449,7 @@ class MOTEvaluator:
                     inference_time += infer_end - start
 
             output_results = self.convert_to_coco_format(outputs, info_imgs, ids)
-            print(" length of putput results : ", len(output_results))
+            # print(" length of putput results : ", len(output_results))
             data_list.extend(output_results)
 
             # run tracking
