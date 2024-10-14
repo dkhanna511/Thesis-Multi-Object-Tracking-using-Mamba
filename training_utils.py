@@ -144,13 +144,20 @@ def train_var_window(args, model, train_dataloader, val_dataloader, configs):
             # loss_smooth_l1.backward()
             loss_criterion_2.backward(retain_graph = True)
             loss_criterion_1.backward()
+            if torch.isnan(total_loss):
+                # print("")
+                print(" targets are :", targets)
+                print("predictions are : ", prediction_offset)
+                print("MSE Loss for this prediction is : ", loss_criterion_1.item())
+                print("CIOU loss is : ", loss_criterion_2)
             
             # total_loss.backward()
             
             optimizer.step()
             scheduler.step()
-            if scheduler.current_step %1000 == 0:
-                print("Current step is :  {} and the learning rate is : {}".format(scheduler.current_step, optimizer.param_groups[-1]['lr']))
+            # if scheduler.current_step %4000 == 0:
+            #     print("Current step is :  {} and the learning rate is : {}".format(scheduler.current_step, optimizer.param_groups[-1]['lr']))
+                # print(" input is : ", inputs)
 
             # Step the warmup scheduler
             # if warmup_scheduler.current_step < warmup_scheduler.warmup_steps:
@@ -178,6 +185,12 @@ def train_var_window(args, model, train_dataloader, val_dataloader, configs):
                 loss_criterion_2= criterion_2(prediction_offset, targets_valid)
             
                 total_loss = loss_criterion_1 + loss_criterion_2
+                if torch.isnan(total_loss):
+                    # print("")
+                    print(" targets are :", targets_valid)
+                    print("predictions are : ", prediction_offset)
+                    print("MSE Loss for this prediction is : ", loss_criterion_1.item())
+                    print("CIOU loss is : ", loss_criterion_2)
                 validation_loss += total_loss
                 
         print("Accumulated training loss is : ", epoch_loss)
@@ -191,7 +204,7 @@ def train_var_window(args, model, train_dataloader, val_dataloader, configs):
                 # best_model_file = best_model_path.split(".")[0] + "_" + str(epoch) + ".pth"
 
                 torch.save(model.state_dict(), best_model_path)
-            print(f'Best model saved with loss: {best_loss:.4f}')
+            print(f'Best model saved with loss: {best_loss:.4f} with name : {best_model_path}')
         end_time = time.time()
         time_taken = end_time - start_time
         if args.run_wandb:

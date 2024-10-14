@@ -106,6 +106,11 @@ def CIOU_Loss_Perplexity(pred_boxes, target_boxes, eps=1e-7):
     pred_area = (pred_x2 - pred_x1) * (pred_y2 - pred_y1)
     target_area = (target_x2 - target_x1) * (target_y2 - target_y1)
 
+    # print("predited area :", pred_area)
+    # print("target area is : ", target_area)
+
+
+
     # Intersection area
     inter_x1 = torch.max(pred_x1, target_x1)
     inter_y1 = torch.max(pred_y1, target_y1)
@@ -116,8 +121,12 @@ def CIOU_Loss_Perplexity(pred_boxes, target_boxes, eps=1e-7):
     # Union area
     union_area = pred_area + target_area - inter_area + eps
 
+
+    # print("intersection area : ", inter_area)
+    # print("union area : ", union_area)
     # IoU
     iou = inter_area / union_area
+    # print(" iou is :", iou)
 
     # Diagonal length of the smallest enclosing box
     enclose_x1 = torch.min(pred_x1, target_x1)
@@ -128,6 +137,8 @@ def CIOU_Loss_Perplexity(pred_boxes, target_boxes, eps=1e-7):
         (enclose_x2 - enclose_x1) ** 2 + (enclose_y2 - enclose_y1) ** 2
     )
 
+    # print(" enclosed diagnal is : ", enclose_diagonal)
+
     # Center distance
     center_x1 = (pred_x1 + pred_x2) / 2
     center_y1 = (pred_y1 + pred_y2) / 2
@@ -135,16 +146,35 @@ def CIOU_Loss_Perplexity(pred_boxes, target_boxes, eps=1e-7):
     center_y2 = (target_y1 + target_y2) / 2
     center_distance = torch.sqrt((center_x1 - center_x2) ** 2 + (center_y1 - center_y2) ** 2)
 
+    # print(" center distance is : ", center_distance)
+
+
     # Calculate v and alpha
     v = (4 / (torch.pi ** 2)) * torch.pow(
-        torch.atan((pred_x2 - pred_x1) / (pred_y2 - pred_y1)) -
+        torch.atan((pred_x2 - (pred_x1- eps)) / (pred_y2 - (pred_y1 - eps))) -
         torch.atan((target_x2 - target_x1) / (target_y2 - target_y1)), 2
     )
+
+    # print(" pred x2 - pred x1 : ", pred_x2 - pred_x1)
+    # print("pred_y2 - pred y1", pred_y2 - pred_y1)
+    temp_1 = torch.atan((pred_x2 - pred_x1) / (pred_y2 - pred_y1))
+    temp_2 = torch.atan((target_x2 - target_x1) / (target_y2 - target_y1))
+
+
+
+    # print("temp1 is : ", temp_1)
+    # print("temp2 is : ", temp_2)
+
+
     alpha = v / (1 - iou + v + eps)
+
+    # print(" V is : ", v)
+    # print("alpha is : ", alpha)
 
     # CIoU loss
     ciou = iou - (center_distance ** 2) / (enclose_diagonal ** 2 + eps) - alpha * v
 
+    # print("CIOU is : ", ciou)
     return 1 - ciou.mean()
 
 
