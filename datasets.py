@@ -109,17 +109,59 @@ class MambaMOTDataset(Dataset):
 
 
 class MOTDatasetBB(Dataset):
-    def __init__(self, path, window_size=10, image_dims=(1920, 1080)):
+    def __init__(self, path, window_size=10, augment = False, augment_ratio = 0.1, image_dims=(1920, 1080)):
         self.window_size = window_size
         # self.image_width, self.image_height = image_dims
         self.path = path
+        self.augment = augment
+        self.augment_ratio = augment_ratio
         # Initialize data storage
         self.data = []
         self.targets = []
         self.sequence_info = []  # To store sequence and frame info
-
+        self.augmentation_ratio = augment_ratio
         # Load the dataset
         self._load_data(path)
+        
+        if self.augment:
+            self._augment_data()
+        # self.augment_indices = set(random.sample(
+        #     range(len(self.data)), int(len(self.data) * augment_ratio)
+        # ))  # Select 10% of the data for augmentation
+
+        
+    def augment_bounding_boxes(self, bboxes):
+        """
+        Applies random augmentations to bounding boxes: scaling, translation, and noise.
+        """
+        augment_prob = 0.5  # Probability threshold for each augmentation
+        flag = False
+        # 1. Random Scaling (only on width and height)
+        if random.random() > augment_prob:
+            # print("applying scaling")
+            scale_factor = np.random.uniform(0.9, 1.1)
+            bboxes[:, 2:] *= scale_factor  # Scale width and height
+            flag = False
+
+        # 2. Random Translation (shift) for center_x and center_y
+        if random.random() > augment_prob and not flag:
+            # print(" applying translation")
+            shift_x, shift_y = np.random.uniform(-0.05, 0.05, size=2)
+            bboxes[:, 0] += shift_x  # Adjust center_x
+            bboxes[:, 1] += shift_y  # Adjust center_y
+            flag = True
+
+        # 3. Noise Injection (Gaussian noise)
+        if random.random() > augment_prob and not flag:
+            # print("adding normal noise")
+            noise = np.random.normal(0, 0.01, size=bboxes.shape)
+            bboxes += noise  # Add noise to all elements
+            # flag = True
+        # 4. Ensure values remain within valid range (0 to 1)
+        bboxes = np.clip(bboxes, 0, 1)
+
+        return bboxes
+
 
     def _load_data(self, path):
         """
@@ -159,7 +201,7 @@ class MOTDatasetBB(Dataset):
                 bboxes = obj_data[:, 2:6]  # [left, top, width, height]
                 frame_nums = obj_data[:, 0]  # Extract frame numbers
                 
-                ### Converting the dataset format from MOT to YOL O , i.e. ( Center x, Center y, Width, Height)
+                ### Converting the dataset format from MOT to YOLO , i.e. ( Center x, Center y, Width, Height)
                 bboxes[:, 0] = bboxes[:, 0] + bboxes[:,2]/2
                 bboxes[:, 1] = bboxes[:, 1] + bboxes[:,3]/2
                 # Normalize bounding boxes
@@ -193,6 +235,32 @@ class MOTDatasetBB(Dataset):
                     self.sequence_info.append((seq, frames_in_window))  # Store sequence name and frame range
                     # print("yoooo")
 
+
+    def _augment_data(self):
+        new_data = []
+        new_targets = []
+        new_sequence_info = []
+
+        total_augmented = int(len(self.data)  * self.augmentation_ratio)
+        augment_indices = np.random.choice(len(self.data), total_augmented, replace = False)
+
+        for idx in augment_indices:
+            input_bboxes = self.data[idx].copy()
+            target_bbox = self.targets[idx].copy()
+            seq_info = self.sequence_info[idx]
+
+            # Apply augmentation
+            input_bboxes = self.augment_bounding_boxes(input_bboxes)
+            new_data.append(input_bboxes)
+            new_targets.append(target_bbox)
+            new_sequence_info.append(seq_info)
+
+
+        self.data.extend(new_data)
+        self.targets.extend(new_targets)
+        self.sequence_info.extend(new_sequence_info)
+
+
     def __len__(self):
         return len(self.data)
 
@@ -203,6 +271,11 @@ class MOTDatasetBB(Dataset):
         input_data = self.data[idx]
         target_data = self.targets[idx]
         seq_info = self.sequence_info[idx]
+        # print("input data outside looks like:", input_data)
+        # if self.augment and idx in self.augment_indices:
+        #     input_data = self.augment_bounding_boxes(input_data)
+        #     print("input data inside looks like : ",  input_data)
+
         return torch.from_numpy(input_data.astype(float)), torch.from_numpy(target_data.astype(float)), seq_info    
 
 class MOT20DatasetOffset(Dataset):
@@ -216,6 +289,7 @@ class MOT20DatasetOffset(Dataset):
 
         # Load the dataset
         self._load_data(path)
+
 
     def _load_data(self, path):
         """
@@ -262,6 +336,7 @@ class MOT20DatasetOffset(Dataset):
                     self.data.append(input_data)
                     self.targets.append(target_data)
 
+   
     def __len__(self):
         return len(self.data)
 
@@ -271,6 +346,10 @@ class MOT20DatasetOffset(Dataset):
         """
         input_data = self.data[idx]
         target_data = self.targets[idx]
+        
+        if self.augment and idx in self.augment_indices:
+            input_data = self.augment_bounding_boxes(input_data)
+            target_data = self.augment_bounding_boxes(target_data[np.newaxis, :])[0]
         return torch.from_numpy(input_data.astype(float)), torch.from_numpy(target_data.astype(float))
     
     

@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 from mamba_ssm import Mamba
 
-
+import torch.nn.utils.rnn as rnn_utils
 import torch.nn as nn
 
 class TemporalTokenEmbedding(nn.Module):
@@ -11,8 +11,10 @@ class TemporalTokenEmbedding(nn.Module):
         self.embedding = nn.Linear(input_dim, embedding_dim)
     
     def forward(self, x):
+        # padded_input, lengths = rnn_utils.pad_packed_sequence(x, batch_first  = True)
+        # padded_inputs = padded_input.to("cuda:0")
+        # return self.embedding(padded_input), lengths
         return self.embedding(x)
-
 
 
 class BiMambaBlock(nn.Module):
@@ -227,6 +229,7 @@ class FullModelMambaBBox(nn.Module):
     def forward(self, x):
         x = self.temporal_token_embedding(x)
         # print(" x shape is : ", x.shape)
+        # packed_x = rnn_utils.pack_padded_sequence(x, lengths, batch_first = True)
         # print(' type of x is : ', type(x))
         # x  =  x.unsqueeze(0)
         # print(" x after reshaping it is : ", x.shape)

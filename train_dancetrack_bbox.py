@@ -55,10 +55,15 @@ def main():
     learning_rate = 0.0001
     lambda_criterion, lambda_criterion_2 = 50, 1
     betas_adam = (0.9, 0.98)
-
+    augment = True
+    augment_ratio = 0.3
 
     # device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     device = args.device
+
+
+    from functools import partial
+    collate_fn_with_padding = partial(training_utils.custom_collate_fn_fixed, context_length= 5)
 
     # Initialize model
     model_used = args.model_type
@@ -71,11 +76,12 @@ def main():
 
 
     ## Define the dataset
-    dataset_train_bbox = MOTDatasetBB(path='datasets/dancetrack/train', window_size = window_size)
-    dataset_val_bbox = MOTDatasetBB(path="datasets/dancetrack/val", window_size = window_size)
+    dataset_train_bbox = MOTDatasetBB(path='datasets/dancetrack/train', window_size = window_size, augment = augment, augment_ratio = augment_ratio )
+    dataset_val_bbox = MOTDatasetBB(path="datasets/dancetrack/val", window_size = window_size, augment = False)
 
     print(" dataset[0] : ", dataset_train_bbox[0])
-
+    def count_parameters(model):
+        return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
     # Create DataLoaders for training and validation sets
     if window_size !="variable":
@@ -84,14 +90,17 @@ def main():
         val_dataloader = DataLoader(dataset_val_bbox, batch_size = batch_size, shuffle = False)
         # exit(0)
     else:
-        train_dataloader = DataLoader(dataset_train_bbox, batch_size=batch_size, shuffle=True, collate_fn = training_utils.custom_collate_fn_fixed)
-        val_dataloader = DataLoader(dataset_val_bbox, batch_size = batch_size, shuffle = False, collate_fn = training_utils.custom_collate_fn_fixed)
+        train_dataloader = DataLoader(dataset_train_bbox, batch_size=batch_size, shuffle=True, collate_fn = collate_fn_with_padding)
+        val_dataloader = DataLoader(dataset_val_bbox, batch_size = batch_size, shuffle = False, collate_fn = collate_fn_with_padding)
 
 
     criterion = nn.SmoothL1Loss()  # Mean squared error loss
+    # criterion = nn.MSELoss()
     criterion_2 = iou_calc.CIOU_Loss_Perplexity
-
-    optimizer = torch.optim.Adam(model.parameters(), lr= learning_rate, betas = betas_adam, )
+    num_params = count_parameters(model)
+    print(f"Total Trainable Parameters: {num_params}")
+    exit(0)
+    optimizer = torch.optim.AdamW(model.parameters(), lr= learning_rate, betas = betas_adam, weight_decay=1e-5)
 
     ### We're not using the random split as we do have seperate folder of validation of dancetrack in the datasets
 
