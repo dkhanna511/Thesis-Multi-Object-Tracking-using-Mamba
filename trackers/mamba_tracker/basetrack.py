@@ -27,6 +27,11 @@ class BaseTrack(object):
     # multi-camera
     location = (np.inf, np.inf)
 
+    @staticmethod
+    def reset_id():
+        """Reset the track ID counter to 0."""
+        BaseTrack._count = 0
+
     @property
     def end_frame(self):
         return self.frame_id
