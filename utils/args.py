@@ -17,7 +17,8 @@ def make_parser():
     parser.add_argument("--machine_rank", default=0, type=int, help="node rank for multi-node training")
     parser.add_argument("--model_type", type=str, required = True, help="Model type")
     parser.add_argument("--dataset_name", type=str, required = True, help="Dataset name")
-
+    parser.add_argument("--tracking_model", type = str, required = True, help = "Path for the mamba tracker model")
+    
     parser.add_argument(
         "-f", "--exp_file",
         default=None,

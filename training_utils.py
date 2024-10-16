@@ -150,7 +150,7 @@ def train_var_window(args, model, train_dataloader, val_dataloader, configs):
                 print("predictions are : ", prediction_offset)
                 print("MSE Loss for this prediction is : ", loss_criterion_1.item())
                 print("CIOU loss is : ", loss_criterion_2)
-            
+                exit(0)
             # total_loss.backward()
             
             optimizer.step()
@@ -191,6 +191,7 @@ def train_var_window(args, model, train_dataloader, val_dataloader, configs):
                     print("predictions are : ", prediction_offset)
                     print("MSE Loss for this prediction is : ", loss_criterion_1.item())
                     print("CIOU loss is : ", loss_criterion_2)
+                    exit(0)
                 validation_loss += total_loss
                 
         print("Accumulated training loss is : ", epoch_loss)

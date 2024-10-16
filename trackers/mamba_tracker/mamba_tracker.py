@@ -8,7 +8,7 @@ import torch.nn.functional as F
 
 from .kalman_filter import KalmanFilter
 from .mamba_predictor import MambaPredictor
-from trackers.byte_tracker import matching
+from trackers.mamba_tracker import matching
 from .basetrack import BaseTrack, TrackState       ######## THIS IS REALLY IMPORTANT, THIS KEEPS TRACK OF ALL THE TRACKLETS
 
 class STrack(BaseTrack):
