@@ -157,9 +157,6 @@ def CIOU_Loss_Perplexity(pred_boxes, target_boxes, eps=1e-7):
 
     # print(" pred x2 - pred x1 : ", pred_x2 - pred_x1)
     # print("pred_y2 - pred y1", pred_y2 - pred_y1)
-    temp_1 = torch.atan((pred_x2 - pred_x1) / (pred_y2 - pred_y1))
-    temp_2 = torch.atan((target_x2 - target_x1) / (target_y2 - target_y1))
-
 
 
     # print("temp1 is : ", temp_1)
