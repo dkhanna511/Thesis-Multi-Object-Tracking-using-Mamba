@@ -288,7 +288,7 @@ class STrack(BaseTrack):
 
 
 class MambaTracker(object):
-    def __init__(self, args, frame_rate=30):
+    def __init__(self, args, frame_rate=20):
         self.tracked_stracks = []  # type: list[STrack]
         self.lost_stracks = []  # type: list[STrack]
         self.removed_stracks = []  # type: list[STrack]
@@ -309,18 +309,18 @@ class MambaTracker(object):
 
     # Function to scale bounding boxes to the new aspect ratio
     def scale_bounding_boxes(self, bounding_boxes,scale):
-        scale_x = scale[1]
-        scale_y = scale[0]
-        
+        # scale_x = scale[1]
+        # scale_y = scale[0]
+        scale_old = scale
         # print(" scale x is : ", scale_x)
         # print("scale y is : ", scale_y)
         scaled_boxes = []
         for (x_min, y_min, x_max, y_max) in bounding_boxes:
             # Scale the coordinates
-            new_x_min = int(x_min * scale_x)
-            new_y_min = int(y_min * scale_y)
-            new_x_max = int(x_max * scale_x)
-            new_y_max =  int(y_max * scale_y)
+            new_x_min = int(x_min * scale_old)
+            new_y_min = int(y_min * scale_old)
+            new_x_max = int(x_max * scale_old)
+            new_y_max =  int(y_max * scale_old)
             scaled_boxes.append([new_x_min, new_y_min, new_x_max, new_y_max])
         
         
@@ -349,17 +349,29 @@ class MambaTracker(object):
             bboxes = output_results[:, :4]  # x1y1x2y2
         img_h, img_w = img_info[0], img_info[1]            ### THIS IS THE ACTUAL IMAGE INFO
         
-        # scale = min(img_size[0] / float(img_h), img_size[1] / float(img_w))
-    
-        scale = (img_h/img_size[0], img_w/float(img_size[1]))
-        bboxes = self.scale_bounding_boxes(bboxes, scale)
+        new_height, new_width  = img_h, img_w
+        old_height, old_width = img_size[0], img_size[1]
         
+        
+        scale_old = min(img_size[0] / float(img_h), img_size[1] / float(img_w)) ### This is the bytetrack one
+        # scale_old = min(img_h / float(img_size[0]),  img_w/ float(img_size[1]))
+        # print(" old image height width is :{}, {}".format(old_height, old_width))
+        # print(" new image height width :  {}, {}".format(new_height, new_width))
+        # print(" bounding boxes before :", bboxes)
+        # scale_new = min(new_height/float(old_height), new_width/float(old_width))
+        # print(" scale is : ", scale)
+        # print("scale_new is : ", scale_old)
+        # bboxes = self.scale_bounding_boxes(bboxes, scale)
+        # bboxes = self.scale_bounding_boxes(bboxes, scale_new)
+        
+        # print(" bounding boxes scaled : ", bboxes)
+        # exit(0)
         # print("outputs for the next frame are:", bboxes)
         
-        # bboxes /= scale
+        bboxes /= scale_old
 
         # print("boxes after scaling are :", bboxes)
-
+        # exit(0)
         remain_inds = scores > self.args.track_thresh
         inds_low = scores > 0.1
         inds_high = scores < self.args.track_thresh

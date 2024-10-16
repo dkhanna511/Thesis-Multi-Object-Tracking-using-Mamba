@@ -245,6 +245,8 @@ class MOTEvaluator:
                 # print(" frame id  is : ", frame_id)
                 img_file_name = info_imgs[4]
                 video_name = img_file_name[0].split('/')[0]
+                # if video_name != "dancetrack0041":
+                #     continue
                 # print("video name is ", video_name)
                 if video_name not in video_names:
                     video_names[video_id] = video_name
@@ -293,14 +295,15 @@ class MOTEvaluator:
             # online_targets = tracker.update(outputs[0], info_imgs, self.img_size)
             # image_size = imgs.shape[2:].cpu().to_
             tensor_shape = imgs.shape
-            image_height = int(tensor_shape[3])  # 1440
-            image_width = int(tensor_shape[2])   # 800
-            image_size  = (image_width, image_height)   ## MAybe this is not used
-            # print(" now image shape is : ", image_size)
+            image_height = int(tensor_shape[3])  
+            image_width = int(tensor_shape[2])   
+            # image_size  = (image_width, image_height)   ## MAybe this is not used
             # print(" outputs is :", outputs[0])
-            
+            # print(" image size is {}, {}".format(info_imgs[0], info_imgs[1]))
+            # print("image_shape is : ", self.img_size)
             online_targets = tracker.update(outputs[0], info_imgs, self.img_size)
-            
+            # print("online targets are :", online_targets)
+            # exit(0)
             online_tlwhs = []
             online_ids = []
             online_scores = []

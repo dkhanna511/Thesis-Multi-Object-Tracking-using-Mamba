@@ -286,8 +286,11 @@ class MambaPredictor(object):
         self.num_blocks = 3 ## For Mamba
         self.device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
         # self.best_model_name  = "best_model_bbox_{}_variable_{}.pth".format(self.dataset_name, self.model_type)
-        self.best_model_name = "best_model_bbox_dancetrack_variable_bi-mamba_04_October.pth"
+        self.best_model_name = "best_model_bbox_dancetrack_variable_bi-mamba_14_October.pth"
+        # self.best_model_name = "best_model_bbox_sportsmot_publish_variable_bi-mamba_15_October.pth"
         
+        
+        print(" dataset name is : ", self.dataset_name)
         print("model type is :",model_type)
         # exit(0)
         
@@ -325,7 +328,7 @@ class MambaPredictor(object):
         
         # return bbox
         # assert bboxes.shape[1:] == (4,), "Input bounding boxes should be in (center_x, center_y, width, height) format."
-        print("The image size used in DENORMALIZATION is: ", img_size)
+        # print("The image size used in DENORMALIZATION is: ", img_size)
         # Apply denormalization for each prediction
         img_h, img_w = img_size[0].item(), img_size[1].item()          ### SETTING IMAGE SIZE LIKE THIS IS NOT A MISTAKE
         bboxes[:, 0] *= img_w   # Denormalize center_x
@@ -347,7 +350,7 @@ class MambaPredictor(object):
         #### This function first converts the data from xywh format to YOLO Format, then nomralize it to process the model
         img_h, img_w = image_size[0], image_size[1]  # Image dimensions (height, width)
 
-        print("image height and width used for normalization is : {} , {}".format(img_h, img_w))
+        # print("image height and width used for normalization is : {} , {}".format(img_h, img_w))
     # Convert xywh to center-based YOLO format by adjusting the (x, y) to be at the center
         bboxes[..., 0] = bboxes[..., 0] + bboxes[..., 2] / 2  # Update x to center x
         bboxes[..., 1] = bboxes[..., 1] + bboxes[..., 3] / 2  # Update y to center y
@@ -365,15 +368,15 @@ class MambaPredictor(object):
     
     def multi_predict(self, tracklet_detections, img_size):
         
-        print("model name is : ", self.best_model_name)
-        print("model type is : ", self.model_type)
+        # print("model name is : ", self.best_model_name)
+        # print("model type is : ", self.model_type)
         # exit(0)
         
         # bounding_boxes = tracklet_detection[:4].copy()
         # print(" tracklet shape in the start is  : ", tracklet_detections.shape)
         # tracklet_detection = tracklet_detection.unsqueeze(0)
-        print(" tracklet before prediction is : ", tracklet_detections)
-
+        
+        # print(" tracklets before prediction : \n\n", tracklet_detections)
         tracklet_detections = self.normalize_yolo_bbox(tracklet_detections, img_size)
         # print(" tracklet before prediction is : ", tracklet_detections)
         
@@ -394,7 +397,7 @@ class MambaPredictor(object):
             predicted_bbox  = predictions.cpu().numpy()
             
             # print(" predicted_bbox is : ", predicted_bbox)
-            print("image size is : ", img_size)
+            # print("image size is : ", img_size)
             predicted_bbox = self.denormalize_bbox(predictions.cpu().numpy(), img_size)            
             
             # exit(0)
