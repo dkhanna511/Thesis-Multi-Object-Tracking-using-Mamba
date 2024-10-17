@@ -128,24 +128,33 @@ def main(exp, args, num_gpu):
     # start tracking
     
     model_type = args.model_type
-    # exit(0)
+    # # exit(0)
+    if args.dataset_name == "dancetrack":
+        padding_window  = 5
+    else:
+        padding_window = 10
     *_, summary = evaluator.evaluate_mamba_track(
-            model, is_distributed, args.fp16, trt_file, decoder, exp.test_size, results_folder, model_type = model_type
+            model, is_distributed, args.fp16, trt_file, decoder, exp.test_size, results_folder, model_type = model_type, padding_window= padding_window, model_path = args.model_path
     )
     
-    # if args.test:
-    #     # we skip evaluation for inference on test set
-    #     return 
+    if args.test:
+        # we skip evaluation for inference on test set
+        return 
 
     # # if we evaluate on validation set, 
     logger.info("\n" + summary)
 
     # # evaluate on the validation set
     mm.lap.default_solver = 'lap'
-    gtfiles = glob.glob(os.path.join('datasets/dancetrack/val', '*/gt/gt.txt'))
+    
+    # results_folder = "YOLOX_outputs/oct16_val/oct16_val_val/"
+    gtfiles = sorted(glob.glob(os.path.join('datasets/{}/val'.format(args.dataset_name), '*/gt/gt.txt')))
     print('gt_files', gtfiles)
-    tsfiles = [f for f in glob.glob(os.path.join(results_folder, '*.txt')) if not os.path.basename(f).startswith('eval')]
+    tsfiles = sorted([f for f in glob.glob(os.path.join(results_folder, '*.txt')) if not os.path.basename(f).startswith('eval')])
+    # tsfiles = glob.glob("YOLOX_outputs/oct16_val/oct16_val_val/" + "*.txt")
+    print('tsfiles are : ', tsfiles)
 
+    
     logger.info('Found {} groundtruths and {} test files.'.format(len(gtfiles), len(tsfiles)))
     logger.info('Available LAP solvers {}'.format(mm.lap.available_solvers))
     logger.info('Default LAP solver \'{}\''.format(mm.lap.default_solver))

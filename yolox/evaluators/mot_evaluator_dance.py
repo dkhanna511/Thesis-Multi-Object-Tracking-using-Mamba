@@ -188,7 +188,9 @@ class MOTEvaluator:
         decoder=None,
         test_size=None,
         result_folder=None, 
-        model_type = None
+        model_type = None,
+        padding_window = None,
+        model_path = None
     ):
         """
         COCO average precision (AP) Evaluation. Iterate inference on the test dataset
@@ -245,7 +247,7 @@ class MOTEvaluator:
                 # print(" frame id  is : ", frame_id)
                 img_file_name = info_imgs[4]
                 video_name = img_file_name[0].split('/')[0]
-                # if video_name != "dancetrack0041":
+                # if video_name != "dancetrack0013":
                 #     continue
                 # print("video name is ", video_name)
                 if video_name not in video_names:
@@ -301,7 +303,7 @@ class MOTEvaluator:
             # print(" outputs is :", outputs[0])
             # print(" image size is {}, {}".format(info_imgs[0], info_imgs[1]))
             # print("image_shape is : ", self.img_size)
-            online_targets = tracker.update(outputs[0], info_imgs, self.img_size)
+            online_targets = tracker.update(outputs[0], info_imgs, self.img_size, padding_window)
             # print("online targets are :", online_targets)
             # exit(0)
             online_tlwhs = []

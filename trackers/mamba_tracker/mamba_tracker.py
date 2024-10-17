@@ -20,7 +20,7 @@ class STrack(BaseTrack):
         # wait activate
         self._tlwh = np.asarray(tlwh, dtype=np.float64)
         # BaseTrack.reset_id()
-      
+        # self.mamba_predictor = MambaPredictor(model_type = "bi-mamba", dataset_name = "MOT20", model_path= model_path)
         self.is_activated = False
 
         ### Mamba prediction parameters
@@ -29,14 +29,14 @@ class STrack(BaseTrack):
         self.score = score
         self.tracklet_len = 0
         self.tracklet = [] ## Store the sequence of past detections
-        self.add_detection(self._tlwh, self.score)
+        self.add_detection(self._tlwh, self.score, padding_window = 10)
         
     
-    def add_detection(self, bbox, score):
+    def add_detection(self, bbox, score, padding_window):
 
         # print(" add detections function working")
         self.tracklet.append((bbox, score))
-        if len(self.tracklet) > 5:
+        if len(self.tracklet) > padding_window:
             self.tracklet.pop(0)
 
    
@@ -53,7 +53,7 @@ class STrack(BaseTrack):
 
         return noisy_sequence
 
-    def get_sequence_input(self, tracklet_info):
+    def get_sequence_input(self, tracklet_info, padding_window):
         
         sequence = []
         
@@ -75,7 +75,8 @@ class STrack(BaseTrack):
         
         ## If the sequence is shorter than max length, pad it with zeros
         
-        max_length = 5
+        max_length = padding_window
+        # print(" max length is : ", max_length)
         flag = False
         input_dim = 4 ## Bounding box shape
         if current_length == 1:
@@ -101,7 +102,7 @@ class STrack(BaseTrack):
         
         
     @staticmethod
-    def predict_mamba(stracks, img_size):
+    def predict_mamba(stracks, img_size, padding_window):
         # print("strack is : ", stracks)
         if len(stracks)  > 0:
             
@@ -122,12 +123,12 @@ class STrack(BaseTrack):
         
             tracklets = []
             # print("\n\ntracklet before prediction is : \n")
-        
+            # print("padding window is : ", padding_window)
             for track in stracks:
             #     print("track is : ", track)
                 # if len(track.tracklet) ==1:
                 # print(np.asarray(track.tracklet))
-                sequence_input = track.get_sequence_input(track.tracklet)
+                sequence_input = track.get_sequence_input(track.tracklet, padding_window)
                 tracklets.append(sequence_input)
                     # tracklets = np.asarray([st.prediction.copy() for st in stracks])
             #         # tracklets = torch.Tensor(tracklets)
@@ -288,7 +289,7 @@ class STrack(BaseTrack):
 
 
 class MambaTracker(object):
-    def __init__(self, args, frame_rate=20):
+    def __init__(self, args, frame_rate=30):
         self.tracked_stracks = []  # type: list[STrack]
         self.lost_stracks = []  # type: list[STrack]
         self.removed_stracks = []  # type: list[STrack]
@@ -303,6 +304,7 @@ class MambaTracker(object):
         self.buffer_size = int(frame_rate / 30.0 * args.track_buffer)
         self.max_time_lost = self.buffer_size
         self.kalman_filter = KalmanFilter()
+        self.model_path = args.model_path
         self.mamba_prediction_cl = MambaPredictor(model_type = self.model_type, dataset_name  = self.dataset_name)
         # self.STrack =- 
         BaseTrack.reset_id()
@@ -327,7 +329,7 @@ class MambaTracker(object):
         return np.array(scaled_boxes)
 
         
-    def update(self, output_results, img_info, img_size):
+    def update(self, output_results, img_info, img_size, padding_window):
         self.frame_id += 1
        
         activated_stracks = []
@@ -352,7 +354,7 @@ class MambaTracker(object):
         new_height, new_width  = img_h, img_w
         old_height, old_width = img_size[0], img_size[1]
         
-        
+        # print("img info is :", img_info)
         scale_old = min(img_size[0] / float(img_h), img_size[1] / float(img_w)) ### This is the bytetrack one
         # scale_old = min(img_h / float(img_size[0]),  img_w/ float(img_size[1]))
         # print(" old image height width is :{}, {}".format(old_height, old_width))
@@ -412,17 +414,18 @@ class MambaTracker(object):
         # Predict the current location with KF
         
         ########### WILL HAVE THE MAKE THE CHANGES HERE ############ REPLACE THE MULTI PREDICT FUNCTIONS WITH MY THINGS
-        STrack.predict_mamba(strack_pool, img_info)
+        STrack.predict_mamba(strack_pool, img_info, padding_window)
         
         # STrack.multi_predict(strack_pool)
         # print( " MATCHING  FOR FIRST ASSOCIATIONS")
         dists = matching.iou_distance(strack_pool, detections)
         if not self.args.mot20:
             dists = matching.fuse_score(dists, detections)
+        
 
         
         matches, u_track, u_detection = matching.linear_assignment(dists, thresh=self.args.match_thresh)
-        # print(" matches is :", matches)
+        
         # print(" FRAME NUMBER IS : ", self.frame_id)
         # print(" matches : {}, unmatched tracked : {}, unmatched detections : {}".format(matches, u_track, u_detection))
         for itracked, idet in matches:
@@ -437,7 +440,7 @@ class MambaTracker(object):
             if track.state == TrackState.Tracked:
                 # print(" detections are : {}".format(detections[idet].tlwh))
                 # track.add_detection(detections[idet].tlbr, detections[idet].score)
-                track.add_detection(detections[idet].tlwh, detections[idet].score)
+                track.add_detection(detections[idet].tlwh, detections[idet].score, padding_window)
                 track.update_mamba(detections[idet], self.frame_id)
                 activated_stracks.append(track)
             else:
@@ -471,7 +474,7 @@ class MambaTracker(object):
         
             if track.state == TrackState.Tracked:
                 # track.add_detection(detections_second[idet].tlbr, detections_second[idet].score)
-                track.add_detection(detections_second[idet].tlwh, detections_second[idet].score)
+                track.add_detection(detections_second[idet].tlwh, detections_second[idet].score, padding_window)
            
                 track.update_mamba(det, self.frame_id)
                 activated_stracks.append(track)
@@ -487,22 +490,32 @@ class MambaTracker(object):
 
         # print("MATCHING FOR UNCONFIRMED TRACKS")
         '''Deal with unconfirmed tracks, usually tracks with only one beginning frame'''
+        # print(" \nun confirmed tracks :", unconfirmed)
         detections = [detections[i] for i in u_detection]
         dists = matching.iou_distance(unconfirmed, detections)
         if not self.args.mot20:
             dists = matching.fuse_score(dists, detections)
+        # print("\ndistance is :", dists)
         matches, u_unconfirmed, u_detection = matching.linear_assignment(dists, thresh=0.7)
+
+        # print("\nstrack pool is :", strack_pool)
+        # print("\ndetections are : ", detections)
+        # print(" \nmatches is :", matches)
+        # print("\nun confirmed track is :", u_unconfirmed)
+        # print("\nun confirmed detection is ", u_detection)
+        # print(' matches for unconfirmed track are  : ', matches)
         for itracked, idet in matches:
             # unconfirmed[itracked].update(detections[idet], self.frame_id)
-            track = strack_pool[itracked]
-            # print("after add detections")
-
-            # track.add_detection(detections[idet].tlbr, detections[idet].score)
-            track.add_detection(detections[idet].tlwh, detections[idet].score)
-            
+            # print(" frame id is :", self.frame_id)
             unconfirmed[itracked].update_mamba(detections[idet], self.frame_id)
-            
+            # print(' i tracked here is : ', itracked)
+            # print('strack pool is ', strack_pool)
+            # track = strack_pool[itracked]
+            # print("after add detections")
+            # track.add_detection(detections[idet].tlbr, detections[idet].score)
+            # track.add_detection(detections[idet].tlwh, detections[idet].score)
             activated_stracks.append(unconfirmed[itracked])
+
         for it in u_unconfirmed:
             track = unconfirmed[it]
             track.mark_removed()

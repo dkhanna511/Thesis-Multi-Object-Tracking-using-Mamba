@@ -93,7 +93,7 @@ class Exp(MyExp):
 
         return train_loader
 
-    def get_eval_loader(self, batch_size, is_distributed, testdev=False):
+    def get_eval_loader(self, batch_size, is_distributed, testdev=True):
         from yolox.data import MOTDataset, ValTransform
         
         if testdev:
