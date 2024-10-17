@@ -273,7 +273,7 @@ class KalmanFilter(object):
         
 
 class MambaPredictor(object):
-    def __init__(self, model_type, dataset_name):
+    def __init__(self, model_type, dataset_name, model_path):
         self.input_size = 4
         # Model parameters
         self.model_type = model_type
@@ -285,13 +285,9 @@ class MambaPredictor(object):
         self.embedding_dim = 128 ## For Mamba
         self.num_blocks = 3 ## For Mamba
         self.device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
-        # self.best_model_name  = "best_model_bbox_{}_variable_{}.pth".format(self.dataset_name, self.model_type)
-        self.best_model_name = "best_model_bbox_dancetrack_variable_bi-mamba_14_October.pth"
-        # self.best_model_name = "best_model_bbox_sportsmot_publish_variable_bi-mamba_15_October.pth"
         
-        
-        print(" dataset name is : ", self.dataset_name)
-        print("model type is :",model_type)
+        print("\ndataset name is : ", self.dataset_name)
+        print("\nmodel type is :",model_type)
         # exit(0)
         
         if model_type == "bi-mamba" or model_type == "vanilla-mamba":
@@ -300,7 +296,16 @@ class MambaPredictor(object):
         else:
             self.model = BBoxLSTMModel(self.input_size, self.hidden_size, self.output_size, self.num_layers).to(self.device)
 
-        print(" model to be loaded is : ", self.best_model_name)
+
+        # self.best_model_name  = "best_model_bbox_{}_variable_{}.pth".format(self.dataset_name, self.model_type)
+        
+        # self.best_model_name = "best_model_bbox_sportsmot_publish_variable_bi-mamba_15_October.pth"
+        self.best_model_name = "best_model_bbox_dancetrack_variable_bi-mamba_14_October.pth"
+
+        # self.best_model_name = model_path
+        
+        print("\nmodel to be loaded is : ", self.best_model_name)
+        # if self.best_model_name is not None:
         self.model.load_state_dict(torch.load(self.best_model_name))  # Load the best model
 
 

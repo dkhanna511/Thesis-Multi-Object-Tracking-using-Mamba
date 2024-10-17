@@ -256,7 +256,7 @@ class MOTEvaluator:
                     # print(" \nimage file name is : ", img_file_name)
                 
                     # print("\nvideo name is : ", video_names)
-                    tracker = MambaTracker(self.args)
+                    tracker = MambaTracker(self.args, padding_window)
 
                     if len(results) != 0:
                         result_filename = os.path.join(result_folder, '{}.txt'.format(video_names[video_id - 1]))
@@ -303,7 +303,7 @@ class MOTEvaluator:
             # print(" outputs is :", outputs[0])
             # print(" image size is {}, {}".format(info_imgs[0], info_imgs[1]))
             # print("image_shape is : ", self.img_size)
-            online_targets = tracker.update(outputs[0], info_imgs, self.img_size, padding_window)
+            online_targets = tracker.update(outputs[0], info_imgs, self.img_size)
             # print("online targets are :", online_targets)
             # exit(0)
             online_tlwhs = []

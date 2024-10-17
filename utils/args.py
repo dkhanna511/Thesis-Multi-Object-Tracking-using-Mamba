@@ -83,7 +83,7 @@ def make_parser():
     parser.add_argument('--min_box_area', type=float, default=10, help='filter out tiny boxes')
     parser.add_argument(
         "--device",
-        default="gpu",
+        default="cuda:0",
         type=str,
         help="device to run our model, can either be cpu or gpu",
     )
