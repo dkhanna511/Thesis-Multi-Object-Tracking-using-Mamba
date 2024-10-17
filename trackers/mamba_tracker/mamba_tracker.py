@@ -12,7 +12,7 @@ from trackers.mamba_tracker import matching
 from .basetrack import BaseTrack, TrackState       ######## THIS IS REALLY IMPORTANT, THIS KEEPS TRACK OF ALL THE TRACKLETS
 
 class STrack(BaseTrack):
-    shared_kalman = KalmanFilter()
+
     mamba_predictor = MambaPredictor(model_type = "bi-mamba", dataset_name = "MOT20", model_path = None)
     # mamba_predictor = 
     def __init__(self, tlwh, score, padding_window):
@@ -108,20 +108,6 @@ class STrack(BaseTrack):
         # print("strack is : ", stracks)
         if len(stracks)  > 0:
             
-            
-            # tracklets = np.asarray([st.prediction.copy() for st in stracks])
-            # for st in stracks:
-                # print(" st is : {} and prediction for it is : {}, and the tracklet length is : {}, and tracklet length is : {}".format(st, st.prediction ,st.tracklet_len, len(st.tracklet)))
-                
-            # multi_prediction = STrack.mamba_predictor.multi_predict(tracklets, img_size)
-            # print(" multi prediction is :", multi_prediction)
-            # for i, multi_prediction in enumerate(multi_prediction):
-                # stracks[i].prediction = multi_prediction
-                
-        #     prediction_state = self.prediction_val.copy()
-        # if self.state !=TrackState.Tracked:
-        #     prediction_state[7] = 0
-        # self.prediction = self.mamba_predictor.predict(prediction_state)
         
             tracklets = []
             # print("\n\ntracklet before prediction is : \n")
@@ -134,16 +120,8 @@ class STrack(BaseTrack):
                 tracklets.append(sequence_input)
                     # tracklets = np.asarray([st.prediction.copy() for st in stracks])
             #         # tracklets = torch.Tensor(tracklets)
-                    ### IN THIS CASE WE'RE PASSING JUST ONE SINGLE INPUT TO THE PREDICTOR TO GET THE RESULTS
                 
-                # elif len(track.tracklet) >=2:
-                    # print(" sequence input shape is : ")
-                    # print("tracklet is : ", track.tracklet)
-                    # predicted_bboxes = STrack.mamba_predictor.multi_predict(sequence_input, img_size)
-            #         # print("predicted_bbox is : ", predicted_bboxes)
-                    # for i, predicted_bbox in enumerate(predicted_bboxes):
-                        # stracks[i].prediction = predicted_bbox
-                    # track.update_predicted_state(predicted_bbox)
+                
             tracklets = np.asarray(tracklets)
             # print(" tracklets shape is : ", tracklets.shape)
             # print("tracklet before prediction after padding : \n", tracklets)
@@ -160,9 +138,7 @@ class STrack(BaseTrack):
         """Start a new tracklet"""
         self.mamba_prediction = mamba_prediction
         
-        # self.mean, self.covariance = self.kalman_filter.initiate(self.tlwh_to_xyah(self._tlwh))
-        # print("This top left width height is : ", self._tlwh)
-        # print(self.)
+      
         ## The format is already top, left, width, height. No need to change it further to aspect ratio thing as done in kalman filter code.
         self.prediction = self.mamba_prediction.initiate(self._tlwh)
         # print("prediction initiation is :", self.prediction)
@@ -172,7 +148,7 @@ class STrack(BaseTrack):
             # self.reset_id()
             # self.track_id = self.next_id()
             self.is_activated = True
-            print(" track ID is : ", self.track_id)
+            # print(" track ID is : ", self.track_id)
             # self.track_id = 0
             
             # self.state = TrackState.New
@@ -186,8 +162,6 @@ class STrack(BaseTrack):
 
 
     def re_activate_mamba(self, new_track, frame_id, new_id=False):
-        # self.mean, self.covariance = self.kalman_filter.update(
-        #     self.mean, self.covariance, self.tlwh_to_xyah(new_track.tlwh)
         
         # self.prediction = self.mamba_prediction.prediction
 
@@ -234,12 +208,11 @@ class STrack(BaseTrack):
         """Get current position in bounding box format `(top left x, top left y,
                 width, height)`.
         """
-        # if self.mean is None:
-        #     return self._tlwh.copy()
+       
 
         if self.prediction is None:
             return self._tlwh.copy()    
-        # ret = self.mean[:4].copy()
+        
         # print(" prediction inside tlwh is : ", self.prediction)
         ret = self.prediction[:4].copy()
         # ret[2] *= ret[3]
@@ -370,14 +343,13 @@ class MambaTracker(object):
         # bboxes = self.scale_bounding_boxes(bboxes, scale)
         # bboxes = self.scale_bounding_boxes(bboxes, scale_new)
         
-        # print(" bounding boxes scaled : ", bboxes)
-        # exit(0)
+
         # print("outputs for the next frame are:", bboxes)
         
         bboxes /= scale_old
 
         # print("boxes after scaling are :", bboxes)
-        # exit(0)
+
         remain_inds = scores > self.args.track_thresh
         inds_low = scores > 0.1
         inds_high = scores < self.args.track_thresh
