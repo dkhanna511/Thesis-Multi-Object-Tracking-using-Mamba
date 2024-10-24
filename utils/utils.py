@@ -2,10 +2,11 @@ import numpy as np
 """
 Utilities for bounding box manipulation and GIoU.
 """
+import os
 import torch
 from torchvision.ops.boxes import box_area
 from loguru import logger
-
+import cv2
 def write_results(filename, results):
     save_format = '{frame},{id},{x1},{y1},{w},{h},{s},-1,-1,-1\n'
     with open(filename, 'w') as f:
@@ -249,3 +250,72 @@ def masks_to_boxes(masks):
     y_min = y_mask.masked_fill(~(masks.bool()), 1e8).flatten(1).min(-1)[0]
 
     return torch.stack([x_min, y_min, x_max, y_max], 1)
+
+
+
+
+
+# Generate random colors for each unique track ID
+def get_color(id):
+    np.random.seed(id)  # Seed to get consistent color for each ID
+    return tuple(np.random.randint(0, 255, 3).tolist())
+
+
+def draw_bounding_boxes(image, boxes, label):
+    """
+    Draw bounding boxes and track IDs on the image with unique colors for each ID.
+    
+    image: The image on which to draw the bounding boxes
+    boxes: List of bounding boxes with format (track_id, x_min, y_min, width, height)
+    label: Text label to display (e.g., 'Tracking' or 'Ground Truth')
+    """
+    for box in boxes:
+        track_id, x_min, y_min, width, height = box
+        color = get_color(int(track_id))  # Assign color based on track_id
+        
+        # Draw rectangle on the image
+        cv2.rectangle(image, (int(x_min), int(y_min)), 
+                    (int(x_min + width), int(y_min + height)), color, 2)
+        
+        # Display track ID and label near the top left corner of the bounding box
+        label_with_id = f"ID: {int(track_id)}"
+        cv2.putText(image, label_with_id, 
+                    (int(x_min), int(y_min - 10)), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+def visualize_tracking_to_video(sequence_folder, tracking_file, output_video_path, fps=20):
+    """
+    Visualizes tracking results and ground truth data on images and saves them as a video.
+    
+    sequence_folder: Folder containing image sequence
+    tracking_file: Path to the file containing tracking data
+    output_video_path: Path to save the resulting video
+    fps: Frames per second for the output video
+    """
+    tracking_data = np.loadtxt(tracking_file, delimiter=',')
+    frame_ids = sorted(set(tracking_data[:, 0]))  # Unique frame IDs
+
+    first_img_path = os.path.join(sequence_folder, f'{int(frame_ids[0]):06d}.jpg')
+    first_image = cv2.imread(first_img_path)
+    if first_image is None:
+        raise FileNotFoundError(f"Image not found: {first_img_path}")
+
+    height, width, _ = first_image.shape
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    video_writer = cv2.VideoWriter(output_video_path, fourcc, fps, (width, height))
+
+    for frame_id in frame_ids:
+        img_path = os.path.join(sequence_folder, f'{int(frame_id):06d}.jpg')
+        image = cv2.imread(img_path)
+        if image is None:
+            print(f"Image not found: {img_path}")
+            continue
+
+        tracking_boxes = tracking_data[tracking_data[:, 0] == frame_id]
+        tracking_boxes = tracking_boxes[:, 1:6]
+
+        draw_bounding_boxes(image, tracking_boxes, label='Tracking')
+        video_writer.write(image)
+
+    video_writer.release()
+    print(f"Video saved to {output_video_path}")
+

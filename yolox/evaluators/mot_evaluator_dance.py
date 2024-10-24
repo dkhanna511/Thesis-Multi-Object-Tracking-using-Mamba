@@ -4,7 +4,8 @@ from tqdm import tqdm
 # import models_mamba
 # from models_mamba import FullModelMambaBBox
 # from datasets import MambaMOTDataset, MOTDatasetBB
-
+import gc
+from pathlib import Path
 
 
 import torch
@@ -21,6 +22,8 @@ from yolox.utils import (
 from trackers.byte_tracker.byte_tracker import BYTETracker
 from trackers.ocsort_tracker.ocsort import OCSort
 from trackers.mamba_tracker.mamba_tracker import MambaTracker
+import cv2
+from trackers.mamba_tracker.mamba_tracker_botsort import MambaTrackerBot
 # from trackers.deepsort_tracker.deepsort import DeepSort
 # from trackers.motdt_tracker.motdt_tracker import OnlineTracker
 
@@ -31,7 +34,7 @@ import itertools
 import json
 import tempfile
 import time
-from utils.utils import write_results, write_results_no_score
+from utils.utils import write_results, write_results_no_score, visualize_tracking_to_video
 
 
 class MOTEvaluator:
@@ -58,126 +61,7 @@ class MOTEvaluator:
         self.num_classes = num_classes
         self.args = args
 
-    def evaluate(
-        self,
-        model,
-        distributed=False,
-        half=False,
-        trt_file=None,
-        decoder=None,
-        test_size=None,
-        result_folder=None
-    ):
-        """
-        COCO average precision (AP) Evaluation. Iterate inference on the test dataset
-        and the results are evaluated by COCO API.
-        NOTE: This function will change training mode to False, please save states if needed.
-        Args:
-            model : model to evaluate.
-        Returns:
-            ap50_95 (float) : COCO AP of IoU=50:95
-            ap50 (float) : COCO AP of IoU=50
-            summary (sr): summary info of evaluation.
-        """
-        # TODO half to amp_test
-        tensor_type = torch.cuda.HalfTensor if half else torch.cuda.FloatTensor
-        model = model.eval()
-        if half:
-            model = model.half()
-        ids = []
-        data_list = []
-        results = []
-        video_names = defaultdict()
-        progress_bar = tqdm if is_main_process() else iter
-
-        inference_time = 0
-        track_time = 0
-        n_samples = len(self.dataloader) - 1
-
-        if trt_file is not None:
-            from torch2trt import TRTModule
-
-            model_trt = TRTModule()
-            model_trt.load_state_dict(torch.load(trt_file))
-
-            x = torch.ones(1, 3, test_size[0], test_size[1]).cuda()
-            model(x)
-            model = model_trt
-            
-        tracker = BYTETracker(self.args)
-        for cur_iter, (imgs, _, info_imgs, ids) in enumerate(
-            progress_bar(self.dataloader)
-        ):
-            with torch.no_grad():
-                # init tracker
-                frame_id = info_imgs[2].item()
-                video_id = info_imgs[3].item()
-                img_file_name = info_imgs[4]
-                video_name = img_file_name[0].split('/')[0]
-
-                if video_name not in video_names:
-                    video_names[video_id] = video_name
-                if frame_id == 1:
-                    tracker = BYTETracker(self.args)
-                    if len(results) != 0:
-                        result_filename = os.path.join(result_folder, '{}.txt'.format(video_names[video_id - 1]))
-                        write_results(result_filename, results)
-                        results = []
-
-                imgs = imgs.type(tensor_type)
-
-                # skip the the last iters since batchsize might be not enough for batch inference
-                is_time_record = cur_iter < len(self.dataloader) - 1
-                if is_time_record:
-                    start = time.time()
-
-                outputs = model(imgs)
-                if decoder is not None:
-                    outputs = decoder(outputs, dtype=outputs.type())
-
-                outputs = postprocess(outputs, self.num_classes, self.confthre, self.nmsthre)
-            
-                if is_time_record:
-                    infer_end = time_synchronized()
-                    inference_time += infer_end - start
     
-            output_results = self.convert_to_coco_format(outputs, info_imgs, ids)
-            data_list.extend(output_results)
-
-            # run tracking
-            online_targets = tracker.update(outputs[0], info_imgs, self.img_size)
-            online_tlwhs = []
-            online_ids = []
-            online_scores = []
-            for t in online_targets:
-                tlwh = t.tlwh
-                tid = t.track_id
-                if tlwh[2] * tlwh[3] > self.args.min_box_area:
-                    online_tlwhs.append(tlwh)
-                    online_ids.append(tid)
-                    online_scores.append(t.score)
-            # save results
-            results.append((frame_id, online_tlwhs, online_ids, online_scores))
-
-            if is_time_record:
-                track_end = time_synchronized()
-                track_time += track_end - infer_end
-            
-            if cur_iter == len(self.dataloader) - 1:
-                result_filename = os.path.join(result_folder, '{}.txt'.format(video_names[video_id]))
-                write_results(result_filename, results)
-
-        statistics = torch.cuda.FloatTensor([inference_time, track_time, n_samples])
-        if distributed:
-            data_list = gather(data_list, dst=0)
-            data_list = list(itertools.chain(*data_list))
-            torch.distributed.reduce(statistics, dst=0)
-
-        eval_results = self.evaluate_prediction(data_list, statistics)
-        synchronize()
-        return eval_results
-
-
 
     def evaluate_mamba_track(
         self,
@@ -247,25 +131,54 @@ class MOTEvaluator:
                 # print(" frame id  is : ", frame_id)
                 img_file_name = info_imgs[4]
                 video_name = img_file_name[0].split('/')[0]
-                # if video_name != "dancetrack0013":
+                # list_done = ["dancetrack0004", "dancetrack0005", "dancetrack0007", "dancetrack0010", "dancetrack0014","dancetrack0018", 
+                #              "dancetrack0019", "dancetrack0025", "dancetrack0026", "dancetrack0030", "dancetrack0034", "dancetrack0035",
+                #              "dancetrack0041", "dancetrack0043", "dancetrack0047", "dancetrack0058", "dancetrack0063", "dancetrack0065",
+                #              "dancetrack0073", "dancetrack0077", "dancetrack0079", "dancetrack0081"]
+                # list_done = ['v_9MHDmAMxO5I_c004', 'v_G-vNjfx1GGc_c601', 'v_9MHDmAMxO5I_c006', 'v_4-EmEtrturE_c009', 'v_5ekaksddqrc_c004',
+                #               'v_00HRwkvvjtQ_c007', 'v_ITo3sCnpw_k_c010', 'v_0kUtTtmLaJA_c010', 'v_ITo3sCnpw_k_c007', 'v_0kUtTtmLaJA_c007',
+                #                 'v_00HRwkvvjtQ_c005', 'v_dw7LOz17Omg_c067', 'v_0kUtTtmLaJA_c004', 'v_5ekaksddqrc_c002', 'v_5ekaksddqrc_c003', 
+                #                 'v_cC2mHWqMcjk_c008', 'v_4r8QL_wglzQ_c001', 'v_G-vNjfx1GGc_c008', 'v_5ekaksddqrc_c001', 'v_ITo3sCnpw_k_c011', 
+                #                 'v_ITo3sCnpw_k_c012', 'v_00HRwkvvjtQ_c008', 'v_5ekaksddqrc_c005', 'v_G-vNjfx1GGc_c004', 'v_00HRwkvvjtQ_c003',
+                #                   'v_9MHDmAMxO5I_c002', 'v_0kUtTtmLaJA_c008', 'v_9MHDmAMxO5I_c003', 'v_BgwzTUxJaeU_c008', 
+                #                   'v_cC2mHWqMcjk_c007', 'v_00HRwkvvjtQ_c011', 'v_0kUtTtmLaJA_c006', 'v_dw7LOz17Omg_c053', 'v_i2_L4qquVg0_c006', 'v_cC2mHWqMcjk_c009', 
+                #                   'v_2QhNRucNC7E_c017', 'v_0kUtTtmLaJA_c005', 'v_BgwzTUxJaeU_c014', 'v_i2_L4qquVg0_c007', 'v_9MHDmAMxO5I_c009', 'v_BgwzTUxJaeU_c012',
+                #                     'v_00HRwkvvjtQ_c001', 'v_G-vNjfx1GGc_c600']
+                # if video_name in  list_done:
                 #     continue
+                # image = cv2.imread()
+                if self.args.association == "botsort" or self.args.association == "bytetrack":
+                    image_path = os.path.join("datasets", self.args.dataset_name, "val", img_file_name[0])
+                    # print("image file name is :", img_file_name)
+                    image =  cv2.imread(image_path)
+
+                
                 # print("video name is ", video_name)
+                # print("image is " , image)
+                # exit(0)
                 if video_name not in video_names:
                     video_names[video_id] = video_name
                 if frame_id == 1:
                     # print(" \nimage file name is : ", img_file_name)
-                
-                    # print("\nvideo name is : ", video_names)
-                    tracker = MambaTracker(self.args, padding_window)
-
+                    if self.args.association == "bytetrack":
+                        # print("\nvideo name is : ", video_names)
+                        tracker = MambaTracker(self.args, padding_window)
+                    elif self.args.association == "botsort":
+                        tracker = MambaTrackerBot(self.args, padding_window)
                     if len(results) != 0:
                         result_filename = os.path.join(result_folder, '{}.txt'.format(video_names[video_id - 1]))
                         write_results(result_filename, results)
+                        video_dir = os.path.join(Path(result_folder).parent, "visualizations")
+                        video_filename = os.path.join(Path(result_folder).parent, "visualizations", '{}.mp4'.format(video_names[video_id -1 ]))
+                        if not os.path.exists(video_dir):
+                            os.makedirs(video_dir)
+                        GT_Seq_path = os.path.join("datasets", self.args.dataset_name, "val", "{}".format(video_names[video_id-1]), "img1")
+                        visualize_tracking_to_video(GT_Seq_path, result_filename, video_filename)
                         results = []
 
                     # print("\ntracked vals are :", tracker.frame_id)
                     # print('\nresults are :', results)
-
+                
                 imgs = imgs.type(tensor_type)
                 # print(" images shape is : ", imgs.shape) ### This gives shape of 800, 1440. Which means that in this img height and width, yolo returns its thing
                 # exit(0)
@@ -303,7 +216,12 @@ class MOTEvaluator:
             # print(" outputs is :", outputs[0])
             # print(" image size is {}, {}".format(info_imgs[0], info_imgs[1]))
             # print("image_shape is : ", self.img_size)
-            online_targets = tracker.update(outputs[0], info_imgs, self.img_size)
+            # print(" img shape is : ", img.shape)
+            # exit(0)
+            if self.args.association == "bytetrack":
+                online_targets = tracker.update(outputs[0], info_imgs, self.img_size, image)
+            elif self.args.association == "botsort":
+                online_targets = tracker.update(outputs[0], info_imgs, self.img_size, image)
             # print("online targets are :", online_targets)
             # exit(0)
             online_tlwhs = []
@@ -331,7 +249,18 @@ class MOTEvaluator:
             if cur_iter == len(self.dataloader) - 1:
                 result_filename = os.path.join(result_folder, '{}.txt'.format(video_names[video_id]))
                 write_results(result_filename, results)
-
+                video_dir = os.path.join(Path(result_folder).parent, "visualizations")
+                video_filename = os.path.join(Path(result_folder).parent, "visualizations", '{}.mp4'.format(video_names[video_id]))
+                if not os.path.exists(video_dir):
+                    os.makedirs(video_dir)
+                GT_Seq_path = os.path.join("datasets", self.args.dataset_name, "val", "{}".format(video_names[video_id]), "img1")
+                visualize_tracking_to_video(GT_Seq_path, result_filename, video_filename)
+                
+            # gc.collect()
+            # torch.cuda.empty_cache()
+            if self.args.association == "bytetrack":
+                del image
+        
         statistics = torch.cuda.FloatTensor([inference_time, track_time, n_samples])
         if distributed:
             data_list = gather(data_list, dst=0)
