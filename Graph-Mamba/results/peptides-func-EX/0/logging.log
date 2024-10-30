@@ -1,6 +1,0 @@
-GPU Mem: [722  15]
-GPU Prob: [0.19 0.81]
-Random select GPU, select GPU 1 with mem: 15
-[*] Run ID 0: seed=0, split_index=0
-    Starting now: 2024-08-06 14:37:41.923770
-ERROR: Failed to import Peptides dataset class, make sure RDKit is installed.
