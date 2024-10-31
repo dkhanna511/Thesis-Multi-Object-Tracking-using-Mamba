@@ -9,6 +9,12 @@ from trackers.byte_tracker import kalman_filter
 import time
 import torch
 from ultralytics import YOLO
+
+import matplotlib.pyplot as plt
+from shapely.geometry import Polygon, MultiPoint
+from shapely.ops import unary_union
+from matplotlib.patches import Polygon as MplPolygon
+
 model_keypoint = YOLO("yolo11x-pose.pt")
 
 
@@ -72,6 +78,12 @@ def ious(atlbrs, btlbrs):
     )
 
     return ious
+
+def pose_estimate_cosine_similarity(prediction_poses, btlbrs):
+
+    pred_vector =  np.array([pred.flatten() for pred in ])
+
+
 
 
 
@@ -139,8 +151,6 @@ def calculate_avg_iou_for_past(past_atracks, past_btracks, match_indices, col):
         past_predictions = to_tlbr(past_predictions)
         print("past prediction is : ", past_predictions)
         past_detections = to_tlbr([past_btracks[col][t][0]])
-        
-        
     
         # past_detection = past_btracks
         print("past detection is : ", past_detections)
@@ -233,19 +243,9 @@ def extract_patches(image, boxes, box_type='xywh'):
     return patches
 
 
-# def keypoint_iou(pred_keypoints, det_keypoints):
 
-def get_smaller_ious(coords):
-    first_row = coords[0]
-    print("first row is : ", first_row)
-    # Compute the absolute differences with all other rows
-    abs_diff = torch.abs(coords - first_row)
-    # Sum the differences across the x and y dimensions for each row
-    row_sums = torch.sum(abs_diff, axis=1)
-    # Exclude the first row from the average calculation (difference with itself is 0)
-    avg_diff = torch.mean(row_sums[1:])
-    
-    return avg_diff
+
+
 
 
 def get_most_descriptive_keypoints(keypoints):
@@ -267,7 +267,6 @@ def get_most_descriptive_keypoints(keypoints):
     # Find the index of the set with the minimum number of [0, 0] entries
     best_index = torch.argmin(zero_counts)
     main_keypoints = keypoints[best_index]
-
 
 
     # Return the keypoint set with the fewest [0, 0] entries
@@ -305,23 +304,57 @@ def get_bboxes_from_joints(joints):
 
     
     return (torch.tensor([left_x_min, left_y_min, left_x_max, left_y_max]), torch.tensor([right_x_min, right_y_min, right_x_max, right_y_max]), torch.tensor([lower_x_min, lower_x_max, lower_y_min, lower_y_max]))
-    # box1_x1, box1_y1 = shoulder_left[0], shoulder_left[1]
-    # box1_x2, box1_y2 = shoulder_left[0], shoulder_left[1]
-    # box1_x1, box1_y1 = shoulder_left[0], shoulder_left[1]
-    # box1_x1, box1_y1 = shoulder_left[0], shoulder_left[1]
-    
-    # (x2, y2) = 
-    # print("shoulder coords are : ", shoulder_left)
 
-    
 
+def filter_keypoints(keypoints):
+    """Filter out [0, 0] keypoints from the array."""
+    return np.array([point for point in keypoints if not np.all(point == [0, 0])])
+
+def create_polygon_from_keypoints(keypoints):
+    """Create a valid polygon from filtered keypoints."""
+    filtered_points = filter_keypoints(keypoints)
+    if len(filtered_points) < 3:
+        raise ValueError("Not enough valid keypoints to form a polygon.")
+    # print("filtered points are  ", filtered_points)
+    # Use MultiPoint to ensure a valid convex hull
+    # print(" type of filtered points is : ", type(filtered_points))
+    polygon = MultiPoint(filtered_points).convex_hull
+
+    # Apply buffer(0) to fix potential topology issues
+    return polygon.buffer(0)
+
+
+def calculate_polygon_iou_matrix(predictions, detections):
+    """
+    Calculate the IoU matrix between two sets of polygons.
+    
+    Args:
+        predictions (list of Polygon): List of prediction polygons.
+        detections (list of Polygon): List of detection polygons.
+        
+    Returns:
+        np.ndarray: IoU matrix of shape (len(predictions), len(detections)).
+    """
+    # Initialize an empty matrix to store IoUs
+    iou_matrix = np.zeros((len(predictions), len(detections)))
+
+    # Calculate IoU for each pair of prediction and detection
+    for i, pred in enumerate(predictions):
+        for j, det in enumerate(detections):
+            intersection_area = pred.intersection(det).area
+            union_area = pred.union(det).area
+            iou_matrix[i, j] = intersection_area / union_area if union_area > 0 else 0.0
+
+    return iou_matrix
 
 
 def get_keypoints(atlbrs, btlbrs, image):
     
     keypoints = np.zeros((len(atlbrs), len(btlbrs)), dtype=np.float64)
     if keypoints.size == 0:
-        return [], [], [], [], [], []
+        # return [], [], [], [], [], []
+        return [], []
+        # return  Polygon([(0, 0), (0, 0), (0, 0), (0, 0)])
 
     prediction_patches = extract_patches(image, atlbrs)
     # print("here")
@@ -333,14 +366,16 @@ def get_keypoints(atlbrs, btlbrs, image):
     pred_boxes_left = []
     pred_boxes_right = []
     pred_boxes_bottom = []
+    pred_polygon_list = []
     count = 0
     for pred in prediction_patches:
         count +=1
         if pred.shape[0] == 0 or pred.shape[1] ==0:
             # continue
-            pred_boxes_left.append([0, 0, 0, 0])
-            pred_boxes_right.append([0, 0, 0, 0])
-            pred_boxes_bottom.append([0, 0, 0, 0])
+            # pred_boxes_left.append([0, 0, 0, 0])
+            # pred_boxes_right.append([0, 0, 0, 0])
+            # pred_boxes_bottom.append([0, 0, 0, 0])
+            pred_polygon_list.append(Polygon([(0, 0), (0, 0), (0, 0), (0, 0)]))
             continue
         # print(" pred shape is :", pred.shap
         pred_keypoint = model_keypoint(pred, verbose = False)[0]
@@ -351,18 +386,22 @@ def get_keypoints(atlbrs, btlbrs, image):
             pred_keypoint = pred_keypoint.keypoints.xy.cpu()
             # print("predicted keypoint is ", pred_keypoint)
             prediction_keypoints= get_most_descriptive_keypoints(pred_keypoint)
+            pred_polygon = create_polygon_from_keypoints(prediction_keypoints)
             # print("most descriptive keypoint is :", prediction_keypoints)
             bounding_boxes = get_bboxes_from_joints(prediction_keypoints)
-            pred_boxes_left.append(bounding_boxes[0])
-            pred_boxes_right.append(bounding_boxes[1])
-            pred_boxes_bottom.append(bounding_boxes[1])
+            # pred_boxes_left.append(bounding_boxes[0])
+            # pred_boxes_right.append(bounding_boxes[1])
+            # pred_boxes_bottom.append(bounding_boxes[1])
+            pred_polygon_list.append(pred_polygon)
+           
         # print('bounding boxes are : ', bounding_boxes)
         else:
             # print(" im coming here")
             # break
-            pred_boxes_left.append([0, 0, 0, 0])
-            pred_boxes_right.append([0, 0, 0, 0])
-            pred_boxes_bottom.append([0, 0, 0, 0])
+            # pred_boxes_left.append([0, 0, 0, 0])
+            # pred_boxes_right.append([0, 0, 0, 0])
+            # pred_boxes_bottom.append([0, 0, 0, 0])
+            pred_polygon_list.append(Polygon([(0, 0), (0, 0), (0, 0), (0, 0)]))
     # print(" count is : ", count)
 
     # print('pred keypoint list :', pred_keypoint_list)
@@ -370,11 +409,13 @@ def get_keypoints(atlbrs, btlbrs, image):
     det_boxes_left = []
     det_boxes_right = []
     det_boxes_bottom = []
+    det_polygon_list = []
     for det in detection_patches:
         if det.shape[0] == 0 or det.shape[1] == 0:
-            det_boxes_left.append([0, 0, 0, 0])
-            det_boxes_right.append([0, 0, 0, 0])
-            det_boxes_bottom.append([0, 0, 0, 0])
+            # det_boxes_left.append([0, 0, 0, 0])
+            # det_boxes_right.append([0, 0, 0, 0])
+            # det_boxes_bottom.append([0, 0, 0, 0])
+            det_polygon_list.append(Polygon([(0, 0), (0, 0), (0, 0), (0, 0)]))
             continue
         
         det_keypoint = model_keypoint(det)[0]
@@ -383,17 +424,20 @@ def get_keypoints(atlbrs, btlbrs, image):
             # print("det_keypoint  length is ", len(pred_keypoint))
 
             detection_keypoints= get_most_descriptive_keypoints(det_keypoint)
-            bounding_boxes = get_bboxes_from_joints(detection_keypoints)
-
-            det_boxes_left.append(bounding_boxes[0])
-            det_boxes_right.append(bounding_boxes[1])
-            det_boxes_bottom.append(bounding_boxes[1])
+            # bounding_boxes = get_bboxes_from_joints(detection_keypoints)
+            det_polygon = create_polygon_from_keypoints(detection_keypoints)
+            # print(" det polygon is " , det_polygon)
+            # det_boxes_left.append(bounding_boxes[0])
+            # det_boxes_right.append(bounding_boxes[1])
+            # det_boxes_bottom.append(bounding_boxes[1])
+            det_polygon_list.append(det_polygon)
         else:
             # print(" else here")
 
-            det_boxes_left.append([0, 0, 0, 0])
-            det_boxes_right.append([0, 0, 0, 0])
-            det_boxes_bottom.append([0, 0, 0, 0])
+            # det_boxes_left.append([0, 0, 0, 0])
+            # det_boxes_right.append([0, 0, 0, 0])
+            # det_boxes_bottom.append([0, 0, 0, 0])
+            det_polygon_list.append( Polygon([(0, 0), (0, 0), (0, 0), (0, 0)]))
             # break
 
     # pred_keypoint_list = np.array(pred_keypoint_list)
@@ -406,10 +450,10 @@ def get_keypoints(atlbrs, btlbrs, image):
 
     # print("pred keypoints list length is :", len(pred_keypoint_list))
     del prediction_patches, detection_patches
-    return pred_boxes_left, pred_boxes_right, pred_boxes_bottom ,det_boxes_left, det_boxes_right, det_boxes_bottom
+    # return pred_boxes_left, pred_boxes_right, pred_boxes_bottom ,det_boxes_left, det_boxes_right, det_boxes_bottom
+    return pred_polygon_list, det_polygon_list
     
-    
-def iou_distance(atracks, btracks, img):
+def iou_distance(atracks, btracks, img, association = None):
     """
     Compute cost based on IoU
     :type atracks: list[STrack]
@@ -426,6 +470,7 @@ def iou_distance(atracks, btracks, img):
         btlbrs = btracks
         
     else:
+        # print(" btracks are : ", btracks)
         # atlbrs = [track.tlbr for track in atracks]
         btlbrs = [track.tlbr for track in btracks]
         atlbrs = [track.tlbr for track in atracks]
@@ -436,76 +481,85 @@ def iou_distance(atracks, btracks, img):
         # print("atlbr length is :", len(atlbrs))
         # print("btlbr length is :", len(btlbrs))
          # print("atlbr is " , atlbrs), 
+        # pred_polygons, det_polygons  = get_keypoints(atlbrs, btlbrs, img)
+         
         # pred_boxes_left, pred_boxes_right, pred_boxes_bottom, det_boxes_left, det_boxes_right, det_boxes_bottom = get_keypoints(atlbrs, btlbrs, img)
         # left_ious = ious(pred_boxes_left, det_boxes_left)
         # right_ious = ious(pred_boxes_right, det_boxes_right)
         # bottom_ious = ious(pred_boxes_bottom, det_boxes_bottom)
-            
+        # if len(pred_polygons) > 0 and len(det_polygons) > 0:
+        #     polygon_ious = calculate_polygon_iou_matrix(pred_polygons, det_polygons)
+        # else:
+        #     polygon_ious  = []
     # print("atlbr is : ", atlbrs)
     # print("btlbr is : ", btlbrs)
     _ious = ious(atlbrs, btlbrs)
-    cost_matrix = 1 - _ious
-    return cost_matrix
+    # cost_matrix = 1 - _ious
+    # return cost_matrix
     h_ious = height_iou_np(atlbrs, btlbrs)
    
-    # print("pred box left length is : ", len(pred_boxes_left))
-    # print("ppred_boxes_right is : ", len(pred_boxes_right))
-    # print("det_boxes_left is : ", len(det_boxes_left))
-    # print("det_boxes_left length is : ", len(det_boxes_right))    
 
-  
-    # print(" left iou shape is : ", left_ious.shape)
-    # print(" right iou shape is : ", right_ious.shape)
-    # print("ious is : \n", _ious)
-    # print("\nhiou is : ", h_ious)    
-    # print("hious are : ", h_ious)
-    # cost_matrix = 1 - np.multiply(_ious, h_ious)
     # if (len(pred_boxes_left) ==0 or len(det_boxes_right) == 0):
     #     cost_matrix = 1 - _ious
     #     return cost_matrix
     # elif (len(pred_boxes_left) == len(atlbrs)) and (len(pred_boxes_right) == len(btlbrs)):
     #     cost_matrix =  1 - np.multiply(_ious, left_ious, right_ious)
     #     return cost_matrix
-    if len(left_ious) !=0 and len(right_ious) !=0 and len(bottom_ious) != 0:
-        cost_matrix = 1 - (0.7 * _ious + 0.1 *left_ious + 0.1 * right_ious + 0.1 * bottom_ious)
-        return cost_matrix
-    
-    return cost_matrix    
+    # if len(left_ious) !=0 and len(right_ious) !=0 and len(bottom_ious) and association == "first_association":
+    #     cost_matrix = 1 - (0.7 * _ious + 0.1 *left_ious + 0.1 * right_ious + 0.1 * bottom_ious)
+    # cost_matrix =  1 - (0.8 *_ious + 0.2 * h_ious)
+    cost_matrix = 1 - _ious
+    # return cost_matrix, []
+    # if len(polygon_ious) > 0:
+    #     cost_matrix = 1 - (0.8 * _ious + 0.2 * polygon_ious)
+    #     return cost_matrix, None
+    return cost_matrix,  []
      # Store columns (detections) that have multiple matching predictions.
     columns_with_multiple_matches = []
     # counts = []
-    for col in range(cost_matrix.shape[1]):
-        # similar_bbboxes = cost_matrix[:, col] <0.2
-        # count = sum(1 for x in cost_matrix[:, col] if x < 0.2)
-        # [counts.append(index) for index, x in enumerate(cost_matrix[:, col]) if x < 0.2]  
-        match_indices = [row for row, value in enumerate(cost_matrix[:, col]) if value < 0.15]
-        if len(match_indices) > 1:
-            columns_with_multiple_matches.append((col, match_indices))
+    if association == "first_association":
+        multiple_matched_detections = []
+        for col in range(cost_matrix.shape[1]):
+            # similar_bbboxes = cost_matrix[:, col] <0.2
+            # count = sum(1 for x in cost_matrix[:, col] if x < 0.2)
+            # [counts.append(index) for index, x in enumerate(cost_matrix[:, col]) if x < 0.2]  
+            match_indices = [row for row, value in enumerate(cost_matrix[:, col]) if value < 0.15]
+            if len(match_indices) > 1:
+                print(" match indices are : ", match_indices)
+                print("cost matrix before : \n", cost_matrix)
+                multiple_matched_detections.append(btracks[col])
+            #     columns_with_multiple_matches.append((col, match_indices))
 
-            predictions = [atlbrs[idx] for idx in match_indices]
-            detections = btlbrs[col]
-            print("predictions length : ", predictions)
-            print("detections are : ", detections)
-            # exit(0)
-            pred_boxes_left, pred_boxes_right, pred_boxes_bottom, det_boxes_left, det_boxes_right, det_boxes_bottom = get_keypoints(predictions, [detections], img)
-            print(" pred boxes left aee : ", pred_boxes_left)
-            print("pred boxes right are : ", pred_boxes_right)
-            print("detect boxes left are :", det_boxes_left)
-            print("detect_lboxes right are : ", det_boxes_right)
-            left_ious = ious(pred_boxes_left, det_boxes_left)
-            right_ious = ious(pred_boxes_right, det_boxes_right)
-            bottom_ious = ious(pred_boxes_bottom, det_boxes_bottom)
-            
-            print("\nleft ious are : \n",  left_ious)
-            print("\nright ious are : \n", right_ious)
-            print("\nmain iou is : \n", _ious)
-            new_left_cost = 1- left_ious
-            new_right_cost = 1 - right_ious
-            new_bottom_cost = 1 - bottom_ious
-            for index, row in enumerate(match_indices):
-                cost_matrix[row, col] = 0.7 * cost_matrix[row, col]  + 0.1 * new_left_cost[index] + 0.1 * new_right_cost[index] + 0.1 * new_bottom_cost[index]
+            #     predictions = [atlbrs[idx] for idx in match_indices]
+            #     detections = btlbrs[col]
+            #     print("predictions length : ", predictions)
+            #     print("detections are : ", detections)
+            #     # exit(0)
+            #     pred_boxes_left, pred_boxes_right, pred_boxes_bottom, det_boxes_left, det_boxes_right, det_boxes_bottom = get_keypoints(predictions, [detections], img)
+            #     print(" pred boxes left aee : ", pred_boxes_left)
+            #     print("pred boxes right are : ", pred_boxes_right)
+            #     print("detect boxes left are :", det_boxes_left)
+            #     print("detect_lboxes right are : ", det_boxes_right)
+            #     left_ious = ious(pred_boxes_left, det_boxes_left)
+            #     right_ious = ious(pred_boxes_right, det_boxes_right)
+            #     bottom_ious = ious(pred_boxes_bottom, det_boxes_bottom)
+                
+            #     print("\nleft ious are : \n",  left_ious)
+            #     print("\nright ious are : \n", right_ious)
+            #     print("\nmain iou is : \n", _ious)
+            #     new_left_cost = 1- left_ious
+            #     new_right_cost = 1 - right_ious
+            #     new_bottom_cost = 1 - bottom_ious
+                for index, row in enumerate(match_indices):
+                    print("overlapping tracklet include : \n", atlbrs[row])
 
+                    # cost_matrix[row, col] = 0.7 * cost_matrix[row, col]  + 0.1 * new_left_cost[index] + 0.1 * new_right_cost[index] + 0.1 * new_bottom_cost[index]
+                    cost_matrix[row, :] = 1.0
+                print("cost matrix after : \n", cost_matrix)
             
+
+        return cost_matrix, multiple_matched_detections
+    return cost_matrix, []
     # # Process the columns with multiple matches.
     # # print('columns with multiple matches : ', columns_with_multiple_matches)
     # if len(columns_with_multiple_matches) > 0:
