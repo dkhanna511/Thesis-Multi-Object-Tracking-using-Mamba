@@ -11,9 +11,11 @@ from .mamba_predictor import MambaPredictor
 from trackers.mamba_tracker import matching
 from .basetrack import BaseTrack, TrackState       ######## THIS IS REALLY IMPORTANT, THIS KEEPS TRACK OF ALL THE TRACKLETS
 from .gmc import GMC
-from fast_reid.fast_reid_interfece import FastReIDInterface
-torch.set_num_threads(16)  # Reduce the number of threads
+# from fast_reid.fast_reid_interfece import FastReIDInterface
+from .embedding import EmbeddingComputer
 
+torch.set_num_threads(16)  # Reduce the number of threads
+from .cmc import CMCComputer
 class STrack(BaseTrack):
 
     mamba_predictor = MambaPredictor(model_type = "bi-mamba", dataset_name = "MOT20", model_path = None)
@@ -337,7 +339,7 @@ class MambaTrackerBot(object):
         self.max_time_lost = self.buffer_size
         self.model_path = args.model_path
         self.mamba_prediction_cl = MambaPredictor(model_type = self.model_type, dataset_name  = self.dataset_name, model_path = self.model_path)
-
+        self.cmc = CMCComputer()
         ################################3 BOT SORT ###########################
         self.track_high_thresh = args.track_high_thresh
         self.track_low_thresh = args.track_low_thresh
@@ -349,9 +351,9 @@ class MambaTrackerBot(object):
         # self.gmc = GMC(method=args.cmc_method, verbose=[args.name, args.ablation])
 
         if args.with_reid:
-            self.encoder = FastReIDInterface(args.fast_reid_config, args.fast_reid_weights, args.device)
+            self.embedder = EmbeddingComputer(args.dataset_name, False, grid_off = True)
 
-        self.gmc = GMC(method=args.cmc_method, verbose=[args.name, args.ablation])
+            # self.encoder = FastReIDInterface(args.fast_reid_config, args.fast_reid_weights, args.device)
 
         #######################################################################
         BaseTrack.reset_id()
@@ -376,7 +378,7 @@ class MambaTrackerBot(object):
         return np.array(scaled_boxes)
 
         
-    def update(self, output_results, img_info, img_size, img):
+    def update(self, output_results, img_info, img_size, img, tag):
         self.frame_id += 1
        
         activated_stracks = []
@@ -425,9 +427,14 @@ class MambaTrackerBot(object):
         # dets /=scale_old
         '''Extract embeddings '''
         if self.args.with_reid:
-            features_keep = self.encoder.inference(img, dets)
-            # print(" features keep is : ", features_keep)
-        
+            ############### THIS IS FROM BOTSORT DEFAULT CODE ########################
+            # features_keep = self.encoder.inference(img, dets)
+            
+            ##################3 THIS ONE IS FROM DEEP OC SORT code ####################################
+            features_keep = self.embedder.compute_embedding(img, dets[:, :4], tag)
+            
+            # print(" features keep is : \n", features_keep)
+            # np.savetxt("botsort.txt", features_keep)
         # print(" detections before the class thing : \n", dets)
         if len(dets) > 0:
             '''Detections'''
@@ -444,7 +451,7 @@ class MambaTrackerBot(object):
         else:
             detections = []
         
-        
+        # exit(0)
         ''' Add newly detected tracklets to tracked_stracks'''
         unconfirmed = []
         tracked_stracks = []  # type: list[STrack]
@@ -461,25 +468,27 @@ class MambaTrackerBot(object):
         STrack.predict_mamba(strack_pool, img_info)
         
         #  Fix camera motion
-        warp = self.gmc.apply(img, dets)
-        STrack.multi_gmc(strack_pool, warp)
-        STrack.multi_gmc(unconfirmed, warp)      
+        # warp = self.gmc.apply(img, dets)
+        # STrack.multi_gmc(strack_pool, warp)
+        # STrack.multi_gmc(unconfirmed, warp)      
 
-        ious_dists = matching.iou_distance(strack_pool, detections)
+        ious_dists, multiple_matched_detections = matching.iou_distance(strack_pool, detections, img)
         ious_dists_mask = (ious_dists > self.proximity_thresh)
-        print(" ious distsances are : \n", ious_dists)
-        print(ious_dists_mask)
+        # print(" ious distsances are : \n", ious_dists)
+        # print(ious_dists_mask)
 
 
-        if not self.args.mot20:
-            dists = matching.fuse_score(ious_dists, detections)
+        # if not self.args.mot20:
+        #     dists = matching.fuse_score(ious_dists, detections)
         
 
         if self.args.with_reid:
             emb_dists = matching.embedding_distance(strack_pool, detections) / 2.0
-            print(" embedded distances : \n",  emb_dists)
+            # if self.args.with_reid and dets.shape[0] != 0:
+            # Shape = (num detections, 3, 512) if grid
+            # print(" embedded distances : \n",  emb_dists)
             raw_emb_dists = emb_dists.copy()
-            print("appearance threshold : ", self.appearance_thresh )
+            # print("appearance threshold : ", self.appearance_thresh )
             emb_dists[emb_dists > self.appearance_thresh] = 1.0
             emb_dists[ious_dists_mask] = 1.0
             dists = np.minimum(ious_dists, emb_dists)
@@ -539,7 +548,7 @@ class MambaTrackerBot(object):
         
 
         r_tracked_stracks = [strack_pool[i] for i in u_track if strack_pool[i].state == TrackState.Tracked]
-        dists = matching.iou_distance(r_tracked_stracks, detections_second)
+        dists, _ = matching.iou_distance(r_tracked_stracks, detections_second, img)
         matches, u_track, u_detection_second = matching.linear_assignment(dists, thresh=0.5)
         
         
@@ -569,8 +578,8 @@ class MambaTrackerBot(object):
         '''Deal with unconfirmed tracks, usually tracks with only one beginning frame'''
 
         detections = [detections[i] for i in u_detection]
-        dists = matching.iou_distance(unconfirmed, detections)
-        ious_dists = matching.iou_distance(unconfirmed, detections)
+        dists, _ = matching.iou_distance(unconfirmed, detections, img)
+        ious_dists, _ = matching.iou_distance(unconfirmed, detections, img)
         ious_dists_mask = (ious_dists > self.proximity_thresh)
         if not self.args.mot20:
             ious_dists = matching.fuse_score(ious_dists, detections)
@@ -667,7 +676,7 @@ def sub_stracks(tlista, tlistb):
 
 def remove_duplicate_stracks(stracksa, stracksb):
     # print(" MATCHING FOR REMOVING DUPLICATE TRACKS")
-    pdist = matching.iou_distance(stracksa, stracksb)
+    pdist , _= matching.iou_distance(stracksa, stracksb, None)
     pairs = np.where(pdist < 0.15)
     dupa, dupb = list(), list()
     for p, q in zip(*pairs):
