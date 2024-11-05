@@ -8,8 +8,11 @@ import torch.nn.functional as F
 import gc
 from .kalman_filter import KalmanFilter
 from .mamba_predictor import MambaPredictor
-from trackers.mamba_tracker import matching
+from trackers.mamba_tracker import matching, matching_hybrid
 from .basetrack import BaseTrack, TrackState       ######## THIS IS REALLY IMPORTANT, THIS KEEPS TRACK OF ALL THE TRACKLETS
+from .gmc import GMC
+
+from .cmc import CMCComputer
 from .gmc import GMC
 # from fast_reid.fast_reid_interfece import FastReIDInterface
 from .embedding import EmbeddingComputer
@@ -398,8 +401,8 @@ class MambaTrackerDiffMOT(object):
         # self.gmc = GMC(method=args.cmc_method, verbose=[args.name, args.ablation])
 
 
-        if args.with_reid:
-            self.embedder = EmbeddingComputer(args.dataset_name, False, grid_off = True)
+        # if args.with_reid:
+        self.embedder = EmbeddingComputer(args.dataset_name, test_dataset = self.args.test, grid_off = True)
         self.alpha_fixed_emb = 0.95
             # self.encoder = FastReIDInterface(args.fast_reid_config, args.fast_reid_weights, args.device)
 
@@ -531,7 +534,10 @@ class MambaTrackerDiffMOT(object):
         # STrack.multi_gmc(strack_pool, warp)
         # STrack.multi_gmc(unconfirmed, warp)      
 
-        ious_dists,  keypoint_dists, multiple_matched_detections = matching.iou_distance(strack_pool, detections, img, association = "yo")
+        ious_dists,  keypoint_dists, multiple_matched_detections = matching.iou_distance(strack_pool, detections, img, association = "first_association", buffer_size = 0.3)
+        # confidence_dists = matching.calculate_confidence_cost_matrix(strack_pool, detections)
+        # print("confidence distances are : \n",confidence_dists)
+        # print("confidence dist is : ", confidence_dists)
         iou_matrix =  1 -ious_dists
 
         if min(iou_matrix.shape) > 0:
@@ -624,9 +630,9 @@ class MambaTrackerDiffMOT(object):
         else:
             detections_second = []
         
-
+        ''' 2nd LEVEL OF ASSOCIATIONS !!!!!!!!!!!!'''
         r_tracked_stracks = [strack_pool[i] for i in u_track if strack_pool[i].state == TrackState.Tracked]
-        dists, keypoint_dists, _ = matching.iou_distance(r_tracked_stracks, detections_second, img)
+        dists, keypoint_dists, _ = matching.iou_distance(r_tracked_stracks, detections_second, img, association = "second_associations", buffer_size = 0.4)
         matches, u_track, u_detection_second = matching.linear_assignment(dists, thresh=0.5)
         
         

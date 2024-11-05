@@ -282,7 +282,7 @@ def draw_bounding_boxes(image, boxes, label):
         cv2.putText(image, label_with_id, 
                     (int(x_min), int(y_min - 10)), 
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
-def visualize_tracking_to_video(sequence_folder, tracking_file, output_video_path, fps=20):
+def visualize_tracking_to_video(sequence_folder, tracking_file, output_video_path, dataset_name,  fps=20):
     """
     Visualizes tracking results and ground truth data on images and saves them as a video.
     
@@ -293,8 +293,11 @@ def visualize_tracking_to_video(sequence_folder, tracking_file, output_video_pat
     """
     tracking_data = np.loadtxt(tracking_file, delimiter=',')
     frame_ids = sorted(set(tracking_data[:, 0]))  # Unique frame IDs
-
-    first_img_path = os.path.join(sequence_folder, f'{int(frame_ids[0]):06d}.jpg')
+    if dataset_name == "dancetrack":
+        first_img_path = os.path.join(sequence_folder, f'{int(frame_ids[0]):08d}.jpg')
+    if dataset_name == "sportsmot_publish":
+        first_img_path = os.path.join(sequence_folder, f'{int(frame_ids[0]):06d}.jpg')
+    
     first_image = cv2.imread(first_img_path)
     if first_image is None:
         raise FileNotFoundError(f"Image not found: {first_img_path}")
@@ -304,7 +307,10 @@ def visualize_tracking_to_video(sequence_folder, tracking_file, output_video_pat
     video_writer = cv2.VideoWriter(output_video_path, fourcc, fps, (width, height))
 
     for frame_id in frame_ids:
-        img_path = os.path.join(sequence_folder, f'{int(frame_id):06d}.jpg')
+        if dataset_name == "dancetrack":
+            img_path = os.path.join(sequence_folder, f'{int(frame_id):08d}.jpg')
+        elif dataset_name == "sportsmot_publish":
+            img_path = os.path.join(sequence_folder, f'{int(frame_id):06d}.jpg')
         image = cv2.imread(img_path)
         if image is None:
             print(f"Image not found: {img_path}")

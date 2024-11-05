@@ -18,7 +18,30 @@ def make_parser():
     parser.add_argument("--model_type", type=str, required = True, help="Model type")
     parser.add_argument("--dataset_name", type=str, required = True, help="Dataset name")
     parser.add_argument("--model_path", type = str, required = True, help = "Path for the mamba tracker model")
+    parser.add_argument("--association", type = str, required = True)
+    #################################### BOT SORT #####################
     
+    # ReID
+    parser.add_argument("--with-reid", dest="with_reid", default=False, action="store_true", help="use Re-ID flag.")
+    parser.add_argument("--fast-reid-config", dest="fast_reid_config", default="./fast_reid/configs/dancetrack/sbs_S50.yml", type=str, help="reid config file path")
+    parser.add_argument("--fast-reid-weights", dest="fast_reid_weights", default="./pretrained/dance_sbs_S50_2.pth", type=str, help="reid config file path")
+    parser.add_argument('--proximity_thresh', type=float, default=0.5, help='threshold for rejecting low overlap reid matches')
+    parser.add_argument('--appearance_thresh', type=float, default=0.25, help='threshold for rejecting low appearance similarity reid matches')
+     # tracking args
+    parser.add_argument("--track_high_thresh", type=float, default=0.6, help="tracking confidence threshold")
+    parser.add_argument("--track_low_thresh", default=0.1, type=float, help="lowest detection threshold valid for tracks")
+    parser.add_argument("--new_track_thresh", default=0.7, type=float, help="new track thresh")
+
+    ### DiffMOT/ Deep-OC-SORT
+    parser.add_argument("--aw_param", type=float, default=0.5)
+    parser.add_argument("--w_assoc_emb", type=float, default=0.75, help="Combine weight for emb cost")
+    # CMC
+    parser.add_argument("--cmc-method", default="file", type=str, help="cmc method: files (Vidstab GMC) | sparseOptFlow |orb | ecc")
+    parser.add_argument("--ablation", dest="ablation", default=False, action="store_true", help="ablation ")
+
+    parser.add_argument("--benchmark", dest="benchmark", type=str, default='dancetrack', help="benchmark to evaluate: MOT17 | MOT20")
+ 
+    ####################################################################################################################
     parser.add_argument(
         "-f", "--exp_file",
         default=None,
@@ -83,7 +106,7 @@ def make_parser():
     parser.add_argument('--min_box_area', type=float, default=10, help='filter out tiny boxes')
     parser.add_argument(
         "--device",
-        default="cuda:0",
+        default="cuda:1",
         type=str,
         help="device to run our model, can either be cpu or gpu",
     )

@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 from shapely.geometry import Polygon, MultiPoint
 from shapely.ops import unary_union
 from matplotlib.patches import Polygon as MplPolygon
+from sklearn.metrics.pairwise import cosine_similarity
 
 model_keypoint = YOLO("yolo11x-pose.pt")
 
@@ -79,27 +80,16 @@ def ious(atlbrs, btlbrs):
 
     return ious
 
-def pose_estimate_cosine_similarity(prediction_poses, btlbrs):
-
-    pred_vector =  np.array([pred.flatten() for pred in ])
-
-
-
-
 
 def to_tlbr(bboxes):
-    """Convert bounding box to format `(min x, min y, max x, max y)`, i.e.,
-    `(top left, bottom right)`.
-    """
     bboxes_list = []
+    
     for box in bboxes:
-        box[2:] += box[:2]
-        bboxes_list.append(box)
-    # bboxes[..., 2] = bboxes[..., 0] + bboxes[..., 2]  
-    # bboxes[..., 3] = bboxes[..., 1] + bboxes[..., 3]  
-
+        new_box = box.copy()  # Copy each individual box
+        new_box[2:] = [new_box[0] + new_box[2], new_box[1] + new_box[3]]
+        bboxes_list.append(new_box)
+    
     return bboxes_list
-
 
 def calculate_avg_iou(past_atracks, past_btracks, match_indices, col):
 
@@ -353,7 +343,7 @@ def get_keypoints(atlbrs, btlbrs, image):
     keypoints = np.zeros((len(atlbrs), len(btlbrs)), dtype=np.float64)
     if keypoints.size == 0:
         # return [], [], [], [], [], []
-        return [], []
+        return keypoints
         # return  Polygon([(0, 0), (0, 0), (0, 0), (0, 0)])
 
     prediction_patches = extract_patches(image, atlbrs)
@@ -362,11 +352,9 @@ def get_keypoints(atlbrs, btlbrs, image):
     # print(" prediction patches length is : ", len(prediction_patches))
     # print(" detection patches length is : ", len(detection_patches))
 
-    new_bounding_boxes = []
-    pred_boxes_left = []
-    pred_boxes_right = []
-    pred_boxes_bottom = []
+    
     pred_polygon_list = []
+    pred_keypoint_list = []
     count = 0
     for pred in prediction_patches:
         count +=1
@@ -375,6 +363,8 @@ def get_keypoints(atlbrs, btlbrs, image):
             # pred_boxes_left.append([0, 0, 0, 0])
             # pred_boxes_right.append([0, 0, 0, 0])
             # pred_boxes_bottom.append([0, 0, 0, 0])
+            prediction_keypoints = np.zeros((17, 2))
+            pred_keypoint_list.append(prediction_keypoints)
             pred_polygon_list.append(Polygon([(0, 0), (0, 0), (0, 0), (0, 0)]))
             continue
         # print(" pred shape is :", pred.shap
@@ -386,18 +376,21 @@ def get_keypoints(atlbrs, btlbrs, image):
             pred_keypoint = pred_keypoint.keypoints.xy.cpu()
             # print("predicted keypoint is ", pred_keypoint)
             prediction_keypoints= get_most_descriptive_keypoints(pred_keypoint)
+            pred_keypoint_list.append(prediction_keypoints)
             pred_polygon = create_polygon_from_keypoints(prediction_keypoints)
             # print("most descriptive keypoint is :", prediction_keypoints)
             bounding_boxes = get_bboxes_from_joints(prediction_keypoints)
             # pred_boxes_left.append(bounding_boxes[0])
             # pred_boxes_right.append(bounding_boxes[1])
             # pred_boxes_bottom.append(bounding_boxes[1])
-            pred_polygon_list.append(pred_polygon)
+            # pred_polygon_list.append(pred_polygon)
            
         # print('bounding boxes are : ', bounding_boxes)
         else:
             # print(" im coming here")
             # break
+            prediction_keypoints = np.zeros((17, 2))
+            pred_keypoint_list.append(prediction_keypoints)
             # pred_boxes_left.append([0, 0, 0, 0])
             # pred_boxes_right.append([0, 0, 0, 0])
             # pred_boxes_bottom.append([0, 0, 0, 0])
@@ -406,15 +399,16 @@ def get_keypoints(atlbrs, btlbrs, image):
 
     # print('pred keypoint list :', pred_keypoint_list)
     # det_keypoint_list = []
-    det_boxes_left = []
-    det_boxes_right = []
-    det_boxes_bottom = []
+
+    det_keypoint_list = []
     det_polygon_list = []
     for det in detection_patches:
         if det.shape[0] == 0 or det.shape[1] == 0:
             # det_boxes_left.append([0, 0, 0, 0])
             # det_boxes_right.append([0, 0, 0, 0])
             # det_boxes_bottom.append([0, 0, 0, 0])
+            detection_keypoints = np.zeros((17, 2))
+            det_keypoint_list.append(detection_keypoints)
             det_polygon_list.append(Polygon([(0, 0), (0, 0), (0, 0), (0, 0)]))
             continue
         
@@ -424,6 +418,7 @@ def get_keypoints(atlbrs, btlbrs, image):
             # print("det_keypoint  length is ", len(pred_keypoint))
 
             detection_keypoints= get_most_descriptive_keypoints(det_keypoint)
+            det_keypoint_list.append(detection_keypoints)
             # bounding_boxes = get_bboxes_from_joints(detection_keypoints)
             det_polygon = create_polygon_from_keypoints(detection_keypoints)
             # print(" det polygon is " , det_polygon)
@@ -437,6 +432,9 @@ def get_keypoints(atlbrs, btlbrs, image):
             # det_boxes_left.append([0, 0, 0, 0])
             # det_boxes_right.append([0, 0, 0, 0])
             # det_boxes_bottom.append([0, 0, 0, 0])
+            
+            detection_keypoints = np.zeros((17, 2))
+            det_keypoint_list.append(detection_keypoints)
             det_polygon_list.append( Polygon([(0, 0), (0, 0), (0, 0), (0, 0)]))
             # break
 
@@ -451,9 +449,59 @@ def get_keypoints(atlbrs, btlbrs, image):
     # print("pred keypoints list length is :", len(pred_keypoint_list))
     del prediction_patches, detection_patches
     # return pred_boxes_left, pred_boxes_right, pred_boxes_bottom ,det_boxes_left, det_boxes_right, det_boxes_bottom
-    return pred_polygon_list, det_polygon_list
+    # return pred_polygon_list, det_polygon_list
+    return np.array(pred_keypoint_list), np.array(det_keypoint_list)
     
-def iou_distance(atracks, btracks, img, association = None):
+
+
+def get_keypoint_cosines(atlbrs, btlbrs, img):
+
+     
+    sim_matrix = np.zeros((len(atlbrs), len(btlbrs)), dtype=np.float64)
+    if sim_matrix.size == 0:
+        # return [], [], [], [], [], []
+        return sim_matrix
+    
+    pred_keypoints, det_keypoints = get_keypoints(atlbrs, btlbrs, img)
+    
+    pred_vectors = np.array([pred.flatten() for pred in pred_keypoints])
+    det_vectors = np.array([det.flatten() for det in det_keypoints])
+
+    similarity_matrix = cosine_similarity(pred_vectors, det_vectors)
+
+    # print("similarity matrix shape is :", similarity_matrix.shape)
+    return similarity_matrix
+
+def expand_boxes(boxes, buffer_size):
+    modified_boxes = []
+
+    for det in boxes:
+        x_top, y_top, x_bottom, y_bottom = det
+        
+        # Calculate width and height
+        width = x_bottom - x_top
+        height = y_bottom - y_top
+        # print("width is : " , width)
+        # print("height is :", height)
+        # Calculate buffer adjustments
+        x_top_new = x_top - (buffer_size/2) * width
+        y_top_new = y_top - (buffer_size)/2 * height
+        x_bottom_new = x_bottom + (buffer_size)/2 * width
+        y_bottom_new = y_bottom + (buffer_size)/2 * height
+        
+        
+        # new_width = x_bottom_new - x_top_new
+        # new_height = y_bottom_new - y_top_new
+        # buffer_scale = (new_width - width) / width
+        # print("buffer scale is : ", buffer_scale)
+        
+        # Append the modified detection
+        modified_boxes.append([x_top_new, y_top_new, x_bottom_new, y_bottom_new])
+
+    return np.array(modified_boxes)
+
+
+def iou_distance(atracks, btracks, img, association = None, buffer_size = 0.0):
     """
     Compute cost based on IoU
     :type atracks: list[STrack]
@@ -474,15 +522,33 @@ def iou_distance(atracks, btracks, img, association = None):
         # atlbrs = [track.tlbr for track in atracks]
         btlbrs = [track.tlbr for track in btracks]
         atlbrs = [track.tlbr for track in atracks]
-        # print("past predictions are : ", [track.prediction for track in atracks])
-        # print("past detections are : ", [track.tracklet for track in btracks])
-        # print(" a track top left bottom right is :", atlbrs)
-        # print(" b track top left bottom right :", btlbrs)
-        # print("atlbr length is :", len(atlbrs))
-        # print("btlbr length is :", len(btlbrs))
-         # print("atlbr is " , atlbrs), 
-        # pred_polygons, det_polygons  = get_keypoints(atlbrs, btlbrs, img)
-         
+        a_tracklet = [track.tracklet for track in atracks]
+        b_score = [track.score for track in btracks]
+        # a_tracklet_new = a_tracklet.copy()
+        # print(" buffer size is : ", buffer_size)
+        atlbrs_buffered = expand_boxes(atlbrs, buffer_size)
+        btlbrs_buffered = expand_boxes(btlbrs, buffer_size)
+        # atlbrs = buffer_size * np.array(atlbrs)
+        # btlbrs = buffer_size * np.array(btlbrs)
+    
+    
+        # print("\n\na tracklet inside IOU Cost matching is :\n\n", a_tracklet)
+        # confidence_cost_matrix = calculate_confidence_cost_matrix(a_tracklet, b_score)
+        # print(" \ncost matrix confidence is : \n", confidence_cost_matrix)
+
+        # color = (255, 0, 0)
+        # if img is not None:
+        #     for box in atlbrs:
+        #         cv2.rectangle(img, (int(box[0]), int(box[1])),  (int(box[2]), int(box[3])), color, 2)
+        #     color = (0, 0, 0)
+        #     for box in btlbrs:
+        #         cv2.rectangle(img, (int(box[0]), int(box[1])),  (int(box[2]), int(box[3])), color, 2)
+        
+        #     cv2.imshow('frame', img )
+        #     cv2.waitKey(2)
+           
+            # cv2.destroyAllWindows()
+       # pred_polygons, det_polygons  = get_keypoints(atlbrs, btlbrs, img)
         # pred_boxes_left, pred_boxes_right, pred_boxes_bottom, det_boxes_left, det_boxes_right, det_boxes_bottom = get_keypoints(atlbrs, btlbrs, img)
         # left_ious = ious(pred_boxes_left, det_boxes_left)
         # right_ious = ious(pred_boxes_right, det_boxes_right)
@@ -493,11 +559,26 @@ def iou_distance(atracks, btracks, img, association = None):
         #     polygon_ious  = []
     # print("atlbr is : ", atlbrs)
     # print("btlbr is : ", btlbrs)
-    _ious = ious(atlbrs, btlbrs)
-    # cost_matrix = 1 - _ious
-    # return cost_matrix
+    # pred_keypoints, det_keypoints = get_keypoints(atlbrs, btlbrs, img)
+    
+    _ious =  ious(atlbrs_buffered, btlbrs_buffered)
+    
     h_ious = height_iou_np(atlbrs, btlbrs)
-   
+    cost_matrix = 1 - _ious
+    # print(" \n\niou cost matrix is : \n", cost_matrix)
+    return cost_matrix, [], []
+
+    if association == "first_association":
+        sim_matrix = get_keypoint_cosines(atlbrs, btlbrs, img)
+        keypoint_cost_matrix = 1 -  sim_matrix
+
+        return cost_matrix,  keypoint_cost_matrix,  []
+
+    else:
+        return cost_matrix, [], [] 
+    # print(" similarity matrix is : \n", sim_matrix.shape)
+        
+    
 
     # if (len(pred_boxes_left) ==0 or len(det_boxes_right) == 0):
     #     cost_matrix = 1 - _ious
@@ -508,12 +589,10 @@ def iou_distance(atracks, btracks, img, association = None):
     # if len(left_ious) !=0 and len(right_ious) !=0 and len(bottom_ious) and association == "first_association":
     #     cost_matrix = 1 - (0.7 * _ious + 0.1 *left_ious + 0.1 * right_ious + 0.1 * bottom_ious)
     # cost_matrix =  1 - (0.8 *_ious + 0.2 * h_ious)
-    cost_matrix = 1 - _ious
     # return cost_matrix, []
     # if len(polygon_ious) > 0:
     #     cost_matrix = 1 - (0.8 * _ious + 0.2 * polygon_ious)
     #     return cost_matrix, None
-    return cost_matrix,  []
      # Store columns (detections) that have multiple matching predictions.
     columns_with_multiple_matches = []
     # counts = []
@@ -695,3 +774,266 @@ def fuse_score(cost_matrix, detections):
     fuse_sim = iou_sim * det_scores
     fuse_cost = 1 - fuse_sim
     return fuse_cost
+
+
+def compute_aw_new_metric(emb_cost, w_association_emb, max_diff=0.5):
+    w_emb = np.full_like(emb_cost, w_association_emb)
+    w_emb_bonus = np.full_like(emb_cost, 0)
+
+    # Needs two columns at least to make sense to boost
+    if emb_cost.shape[1] >= 2:
+        # Across all rows
+        for idx in range(emb_cost.shape[0]):
+            inds = np.argsort(-emb_cost[idx])
+            # Row weight is difference between top / second top
+            row_weight = min(emb_cost[idx, inds[0]] - emb_cost[idx, inds[1]], max_diff)
+            # Add to row
+            w_emb_bonus[idx] += row_weight / 2
+
+    if emb_cost.shape[0] >= 2:
+        for idj in range(emb_cost.shape[1]):
+            inds = np.argsort(-emb_cost[:, idj])
+            col_weight = min(emb_cost[inds[0], idj] - emb_cost[inds[1], idj], max_diff)
+            w_emb_bonus[:, idj] += col_weight / 2
+
+    return w_emb + w_emb_bonus
+
+
+
+def bbox_center(bbox):
+    """Compute the center of a bounding box."""
+    x1, y1, x2, y2 = bbox  # (x_min, y_min, x_max, y_max)
+    cx = (x1 + x2) / 2
+    cy = (y1 + y2) / 2
+    return np.array([cx, cy])
+
+def bbox_size(bbox):
+    """Compute the width and height of a bounding box."""
+    x1, y1, x2, y2 = bbox
+    width = x2 - x1
+    height = y2 - y1
+    return np.array([width, height])
+
+def calculate_displacement(bbox1, bbox2):
+    
+    """Compute the Euclidean distance between the centers of two bounding boxes."""
+    # if type == "history":
+    bbox1 = np.asarray(bbox1).copy()
+    bbox1[2:] += bbox1[:2]
+        
+    bbox2 = np.asarray(bbox2).copy()
+    bbox2[2:] += bbox2[:2]
+    # elif type == "current":
+    #     bbox1 = np.asarray(bbox1).copy()
+    #     bbox1[2:] += bbox1[:2]
+        
+    center1 = bbox_center(bbox1)
+    center2 = bbox_center(bbox2)
+    return np.linalg.norm(center1 - center2)
+
+def calculate_size_change(bbox1, bbox2):
+    """Compute the size change between two bounding boxes."""
+    
+    # if type == "history":
+    #     # print(" bounding box before was : ", bbox1)
+    bbox1 = np.asarray(bbox1).copy()
+    bbox1[2:] += bbox1[:2]
+    #     # print("bounding box after is : ", bbox1)
+        
+    bbox2 = np.asarray(bbox2).copy()
+    bbox2[2:] += bbox2[:2]
+    
+    # elif type == "current":
+    #     bbox1 = np.asarray(bbox1).copy()
+    #     bbox1[2:] += bbox1[:2]
+    
+    
+    size1 = bbox_size(bbox1)
+    size2 = bbox_size(bbox2)
+    return np.linalg.norm(size1 - size2)
+
+def estimate_confidence(atracks, alpha=0.4, beta=0.6):
+    """
+    Estimate the confidence of the predicted bounding box.
+    
+    Args:
+        bboxes (list of tuples): List of previous bounding boxes (x1, y1, x2, y2).
+        predicted_bbox (tuple): The predicted bounding box.
+        alpha (float): Weight for displacement-based confidence.
+        beta (float): Weight for size consistency-based confidence.
+    
+    Returns:
+        float: Estimated confidence score between 0 and 1.
+    """
+    
+    
+    if (len(atracks)>0 and isinstance(atracks[0], np.ndarray)):
+        atlbrs = atracks
+        
+        
+    else:
+        # print(" btracks are : ", btracks)
+        # atlbrs = [track.tlbr for track in atracks]
+        atlbrs = [track.tlwh for track in atracks]
+        a_previous = [track.tracklet for track in atracks]
+    
+    if len(atlbrs) == 0:
+        return []
+    
+    print(" atlbrs is : \n", atlbrs)
+    
+    print(" previous tracklet info is : ", a_previous)
+    # bboxes_list = [tracklet[:-1] for tracklet in atlbrs]
+    
+    # bboxes_list = []
+    # bboxes_list.append([[tracklet[:-1]] for tracklet in atlbrs]) 
+    # bboxes_list = [np.array(tracklet[:-1]) for tracklet in atlbrs]
+
+    # print(" bboxes list is :\n", bboxes_list)
+    # predicted_bbox_list = [tracklet[-1] for tracklet in atlbrs]
+
+    # predicted_bbox_list = []
+    # predicted_bbox_list.append([[tracklet[-1]] for tracklet in atlbrs])
+    
+    # print(" predted bbox is : \n", predicted_bbox_list)
+    confidence_list = []
+    for bboxes, predicted_bbox in zip(a_previous, atlbrs):
+        # Calculate average displacement and size change over the tracklet
+        # bbox1 = bboxes[0][i+1]
+        displacements = [calculate_displacement(bboxes[i][0], bboxes[i + 1][0]) 
+                        for i in range(len(bboxes) - 1)]
+        avg_displacement = np.mean(displacements)
+
+        size_changes = [calculate_size_change(bboxes[i][0], bboxes[i + 1][0]) 
+                        for i in range(len(bboxes) - 1)]
+        avg_size_change = np.mean(size_changes)
+
+        print(" average size change is :", avg_size_change)
+        print("average displacement : ", avg_displacement)
+        # Calculate displacement and size  change for the predicted bbox
+        last_bbox = bboxes[-1][0]
+        print("\n\nlast bounding box was : ", last_bbox)
+        print("predictes box is : ", predicted_bbox)
+        displacement = calculate_displacement(last_bbox, predicted_bbox)
+        size_change = calculate_size_change(last_bbox, predicted_bbox)
+
+        # Normalize displacement and size change (higher values reduce confidence)
+        displacement_conf = np.exp(-displacement / (avg_displacement + 1e-5))
+        size_change_conf = np.exp(-size_change / (avg_size_change + 1e-5))
+        print(" size_change_conf is :", size_change_conf)
+        print("displacement_conf : ", displacement_conf)
+
+        # Combine the two confidence scores
+        confidence = alpha * displacement_conf + beta * size_change_conf
+        # return np.clip(confidence, 0.0, 1.0)
+        print(" confidence is : ", confidence)
+        confidence_list.append(np.clip(confidence, 0.0, 1.0))
+        
+    return np.array(confidence_list)
+
+
+
+
+
+
+def linear_assignment2(cost_matrix):
+    try:
+        import lap
+
+        _, x, y = lap.lapjv(cost_matrix, extend_cost=True)
+        return np.array([[y[i], i] for i in x if i >= 0])  #
+    except ImportError:
+        from scipy.optimize import linear_sum_assignment
+
+        x, y = linear_sum_assignment(cost_matrix)
+        return np.array(list(zip(x, y)))
+
+
+# Updated confidence function
+def calculate_prediction_confidence(tracklet):
+    
+    tracklets_tlwh = [bbox[0] for bbox in tracklet]
+
+    tracklets_tlbr = to_tlbr(tracklets_tlwh)
+    
+
+    initial_area = (tracklets_tlbr[0][2] - tracklets_tlbr[0][0]) * (tracklets_tlbr[0][3] - tracklets_tlbr[0][1])
+    areas = [(box[2] - box[0]) * (box[3] - box[1]) / initial_area for box in tracklets_tlbr]
+    aspect_ratios = [(box[2] - box[0]) / (box[3] - box[1]) for box in tracklets_tlbr]
+    # centers = [[(box[0] + box[2]) / 2, (box[1] + box[3]) / 2] for box in tracklets_tlbr]
+
+   # Normalize the aspect ratios
+    aspect_ratios = np.clip(aspect_ratios, 0.1, None)  # Avoid division by zero in future calculations
+    aspect_ratios = (aspect_ratios - np.min(aspect_ratios)) / (np.max(aspect_ratios) - np.min(aspect_ratios))
+
+    # Calculate center movements
+    centers = [[(box[0] + box[2]) / 2, (box[1] + box[3]) / 2] for box in tracklets_tlbr]
+    center_movements = [np.linalg.norm(np.array(centers[i]) - np.array(centers[i - 1])) for i in range(1, len(centers))]
+    
+    # Calculate deviations
+    area_deviation = np.std(areas)
+    aspect_ratio_deviation = np.std(aspect_ratios)
+    center_movement_deviation = np.std(center_movements)
+
+    # Weighting factors can be adjusted here
+    confidence = 1 - (0.2 * area_deviation + 0.3 * aspect_ratio_deviation + 0.5 * center_movement_deviation)
+    return max(0, confidence)
+
+def calculate_tracklet_confidence(tracklet):
+    # Extract box bbo
+    tracklets_tlwh = [bbox[0] for bbox in tracklet]
+    # print(" tracklet tlwh is : ", tracklets_tlwh)
+    # print(" tracklet tlwh  is : ", tracklets_tlwh)
+    # return []
+    tracklets_tlbr = to_tlbr(tracklets_tlwh)
+    # print(" tracklet tlbr  is : ", tracklets_tlbr)
+    # return []
+    areas = [(box[2] - box[0]) * (box[3] - box[1]) for box in tracklets_tlbr]  # Box areas
+    # print(" areas are : ", areas)
+    aspect_ratios = [(box[2] - box[0]) / (box[3] - box[1]) for box in tracklets_tlbr]  # Aspect ratios
+    # print(" aspect ratio are : ", aspect_ratios)
+    
+    centers = [[(box[0] + box[2]) / 2, (box[1] + box[3]) / 2] for box in tracklets_tlbr]  # Box centers
+    
+    # Calculate variances
+    area_variance = np.var(areas)
+    # print(" area variance is :", area_variance)
+    aspect_ratio_variance = np.var(aspect_ratios)
+    center_movements = [np.linalg.norm(np.array(centers[i]) - np.array(centers[i-1])) for i in range(1, len(centers))]
+    center_movement_variance = np.var(center_movements)
+
+    # Define weights for each metric
+    area_weight, aspect_ratio_weight, movement_weight = 0.3, 0.3, 0.4
+    
+    # Compute normalized confidence score
+    confidence = 1 - (area_weight * area_variance + aspect_ratio_weight * aspect_ratio_variance + movement_weight * center_movement_variance)
+    return max(0, confidence)  # Ensure confidence is at least 0
+
+
+
+def calculate_confidence_cost_matrix(a_tracklets, b_score):
+    
+    a_tracklets_new = a_tracklets.copy()
+    # return []
+    # print("tracklets inside dconfidence thingy is : ", a_tracklets)
+    # print(" detection score  is : ", b_score)
+    # Step 1: Calculate confidence for each prediction tracklet
+    a_score = [calculate_prediction_confidence(yoyo) for yoyo in a_tracklets_new]
+    # print(" a score is : ", a_score)
+    # Step 2: Create an empty cost matrix with dimensions len(predictions) x len(detections)
+    # return []
+    cost_matrix_confidence = np.zeros((len(a_score), len(b_score)))
+    
+    # Step 2: Calculate cost for each prediction-detection pair
+    for i, pred_conf in enumerate(a_score):
+        for j, det_conf in enumerate(b_score):
+            # Define cost as a function of both prediction and detection confidence
+            # combined_confidence = (pred_conf + det_conf) / 2
+            # print(" detection confidence is : ", det_conf)
+            combined_confidence = abs(pred_conf - det_conf)
+            cost_matrix_confidence[i, j] =  combined_confidence  # Lower cost for higher confidence
+
+    # Step 4: (Optional) Normalize cost matrix if needed
+    cost_matrix_confidence = np.clip(cost_matrix_confidence, 0, 1)
+    # print(" cost matrix confidence is : ", cost_matrix_confidence)
+    return cost_matrix_confidence
