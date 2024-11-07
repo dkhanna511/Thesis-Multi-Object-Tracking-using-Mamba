@@ -525,9 +525,13 @@ def iou_distance(atracks, btracks, img, association = None, buffer_size = 0.0):
         a_tracklet = [track.tracklet for track in atracks]
         b_score = [track.score for track in btracks]
         # a_tracklet_new = a_tracklet.copy()
+        # if association == "half_first_association":
+            # print(" atlbrs are : ", atlbrs)
+            # print("btlbrs  : ", btlbrs)
         # print(" buffer size is : ", buffer_size)
         atlbrs_buffered = expand_boxes(atlbrs, buffer_size)
         btlbrs_buffered = expand_boxes(btlbrs, buffer_size)
+        
         # atlbrs = buffer_size * np.array(atlbrs)
         # btlbrs = buffer_size * np.array(btlbrs)
     
@@ -566,16 +570,16 @@ def iou_distance(atracks, btracks, img, association = None, buffer_size = 0.0):
     h_ious = height_iou_np(atlbrs, btlbrs)
     cost_matrix = 1 - _ious
     # print(" \n\niou cost matrix is : \n", cost_matrix)
-    return cost_matrix, [], []
+    # return cost_matrix, [], []
 
-    if association == "first_association":
-        sim_matrix = get_keypoint_cosines(atlbrs, btlbrs, img)
-        keypoint_cost_matrix = 1 -  sim_matrix
+    # if association == "first_association":
+    #     sim_matrix = get_keypoint_cosines(atlbrs, btlbrs, img)
+    #     keypoint_cost_matrix = 1 -  sim_matrix
 
-        return cost_matrix,  keypoint_cost_matrix,  []
+    #     return cost_matrix,  keypoint_cost_matrix,  []
 
-    else:
-        return cost_matrix, [], [] 
+    # else:
+    #     return cost_matrix, [], [] 
     # print(" similarity matrix is : \n", sim_matrix.shape)
         
     
@@ -594,51 +598,25 @@ def iou_distance(atracks, btracks, img, association = None, buffer_size = 0.0):
     #     cost_matrix = 1 - (0.8 * _ious + 0.2 * polygon_ious)
     #     return cost_matrix, None
      # Store columns (detections) that have multiple matching predictions.
-    columns_with_multiple_matches = []
-    # counts = []
+     
     if association == "first_association":
-        multiple_matched_detections = []
+        multiple_matched_predictions = []
+        multiple_matched_predictions_tlbrs = []
         for col in range(cost_matrix.shape[1]):
             # similar_bbboxes = cost_matrix[:, col] <0.2
             # count = sum(1 for x in cost_matrix[:, col] if x < 0.2)
             # [counts.append(index) for index, x in enumerate(cost_matrix[:, col]) if x < 0.2]  
             match_indices = [row for row, value in enumerate(cost_matrix[:, col]) if value < 0.15]
             if len(match_indices) > 1:
-                print(" match indices are : ", match_indices)
-                print("cost matrix before : \n", cost_matrix)
-                multiple_matched_detections.append(btracks[col])
-            #     columns_with_multiple_matches.append((col, match_indices))
-
-            #     predictions = [atlbrs[idx] for idx in match_indices]
-            #     detections = btlbrs[col]
-            #     print("predictions length : ", predictions)
-            #     print("detections are : ", detections)
-            #     # exit(0)
-            #     pred_boxes_left, pred_boxes_right, pred_boxes_bottom, det_boxes_left, det_boxes_right, det_boxes_bottom = get_keypoints(predictions, [detections], img)
-            #     print(" pred boxes left aee : ", pred_boxes_left)
-            #     print("pred boxes right are : ", pred_boxes_right)
-            #     print("detect boxes left are :", det_boxes_left)
-            #     print("detect_lboxes right are : ", det_boxes_right)
-            #     left_ious = ious(pred_boxes_left, det_boxes_left)
-            #     right_ious = ious(pred_boxes_right, det_boxes_right)
-            #     bottom_ious = ious(pred_boxes_bottom, det_boxes_bottom)
-                
-            #     print("\nleft ious are : \n",  left_ious)
-            #     print("\nright ious are : \n", right_ious)
-            #     print("\nmain iou is : \n", _ious)
-            #     new_left_cost = 1- left_ious
-            #     new_right_cost = 1 - right_ious
-            #     new_bottom_cost = 1 - bottom_ious
-                for index, row in enumerate(match_indices):
-                    print("overlapping tracklet include : \n", atlbrs[row])
-
-                    # cost_matrix[row, col] = 0.7 * cost_matrix[row, col]  + 0.1 * new_left_cost[index] + 0.1 * new_right_cost[index] + 0.1 * new_bottom_cost[index]
-                    cost_matrix[row, :] = 1.0
-                print("cost matrix after : \n", cost_matrix)
+                # print(" match indices are : ", match_indices)
+                # print("cost matrix before : \n", cost_matrix)
+                # multiple_matched_predictions.append([match_indices, btlbrs[col], b_score[col]])
+                multiple_matched_predictions.append([[atracks[idx] for idx in match_indices], btlbrs[col], b_score[col]])
+                # multiple_matched_predictions_tlbrs.append(btlbrs[col])
             
 
-        return cost_matrix, multiple_matched_detections
-    return cost_matrix, []
+        return cost_matrix, [],  multiple_matched_predictions
+    return cost_matrix, [], []
     # # Process the columns with multiple matches.
     # # print('columns with multiple matches : ', columns_with_multiple_matches)
     # if len(columns_with_multiple_matches) > 0:

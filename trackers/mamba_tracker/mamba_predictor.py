@@ -3,6 +3,7 @@ import numpy as np
 import scipy.linalg
 import torch
 from models_mamba import FullModelMambaBBox, BBoxLSTMModel
+from mambaAttention import FullModelMambaBBoxAttention
 """
 Table for the 0.95 quantile of the chi-square distribution with N degrees of
 freedom (contains values for N=1, ..., 9). Taken from MATLAB/Octave's chi2inv
@@ -284,24 +285,33 @@ class MambaPredictor(object):
         self.num_layers = 4## For LSTM
         self.embedding_dim = 128 ## For Mamba
         self.num_blocks = 3 ## For Mamba
+        self.num_heads = 4
         self.device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
         
+        self.model_type = "attention-mamba"
         print("\ndataset name is : ", self.dataset_name)
-        print("\nmodel type is :",model_type)
+        print("\nmodel type is :",self.model_type)
         # exit(0)
         
-        if model_type == "bi-mamba" or model_type == "vanilla-mamba":
+        if self.model_type == "bi-mamba" or model_type == "vanilla-mamba":
             self.model = FullModelMambaBBox(self.input_size, self.embedding_dim, self.num_blocks, self.output_size, mamba_type =  model_type).to(self.device)
             # exit(0)
+        if self.model_type == "attention-mamba":
+            self.model = FullModelMambaBBoxAttention(self.input_size, self.embedding_dim, self.num_blocks, self.output_size, num_heads= self.num_heads , mamba_type =  model_type).to(self.device)
+        
         else:
             self.model = BBoxLSTMModel(self.input_size, self.hidden_size, self.output_size, self.num_layers).to(self.device)
 
 
         # self.best_model_name  = "best_model_bbox_{}_variable_{}.pth".format(self.dataset_name, self.model_type)
         
-        # self.best_model_name = "best_model_bbox_sportsmot_publish_variable_bi-mamba_15_October.pth"
-        self.best_model_name = "best_model_bbox_dancetrack_variable_bi-mamba_14_October.pth"
-
+        # self.best_model_name = "running_models/best_model_bbox_sportsmot_publish_variable_bi-mamba_15_October.pth"
+        # self.best_model_name = "running_models/best_model_bbox_dancetrack_variable_bi-mamba_14_October.pth"
+        # self.best_model_name = "running_models/best_model_bbox_sportsmot_publish_variable_vanilla-mamba_20_October.pth"
+        # self.best_model_name = "running_models/best_model_bbox_dancetrack_variable_attention-mamba_29_October.pth"
+        self.best_model_name = "best_models/best_model_bbox_dancetrack_variable_attention-mamba_30_October.pth"                #### This one is the best predictor for now
+        # self.best_model_name = "best_model_bbox_sportsmot_publish_variable_attention-mamba_01_November.pth"
+        # self.best_model_name = "best_model_bbox_dancetrack_variable_attention-mamba_02_November.pth"                        ##### This one is the best predictor for noww
         # self.best_model_name = model_path
         
         print("\nmodel to be loaded is : ", self.best_model_name)
