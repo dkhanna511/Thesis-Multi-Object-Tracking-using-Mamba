@@ -31,6 +31,7 @@ class STrack(BaseTrack):
         # BaseTrack.reset_id()
         # self.mamba_predictor = MambaPredictor(model_type = "bi-mamba", dataset_name = "MOT20", model_path= model_path)
         self.is_activated = False
+        self.is_virtual = False
 
         ### Mamba prediction parameters
         self.prediction = None
@@ -61,6 +62,7 @@ class STrack(BaseTrack):
         # if feat is not None:
         #     self.update_features(feat)
         self.features = deque([], maxlen=feat_history)
+        self.pose_history = deque([], maxlen = feat_history)
         self.alpha = 0.9
     
 
@@ -79,6 +81,34 @@ class STrack(BaseTrack):
 
 
     ################################  DiffMOT #######################
+
+    # def update_pose(self, new_pose, alpha=0.9):
+    #     if self.current_pose is None:
+    #         self.current_pose = new_pose
+    #     else:
+    #         self.current_pose = alpha * self.current_pose + (1 - alpha) * new_pose
+    #     self.pose_history.append(self.current_pose)
+    
+    def update_pose(self, new_pose, max_history=10):
+        self.pose_history.append(new_pose)
+        if len(self.pose_history) > max_history:
+            self.pose_history.popleft()
+        
+        # Calculate pose velocity
+        if len(self.pose_history) > 1:
+            pose_velocity = np.mean([np.linalg.norm(self.pose_history[i+1] - self.pose_history[i]) 
+                                    for i in range(len(self.pose_history)-1)])
+            
+            # Adjust alpha based on velocity
+            alpha = max(0.1, min(0.9, 1.0 - pose_velocity / 100))  # Adjust scaling as needed
+        else:
+            alpha = 0.5  # Default value
+        
+        # Update current pose
+        if self.current_pose is None:
+            self.current_pose = new_pose
+        else:
+            self.current_pose = alpha * self.current_pose + (1 - alpha) * new_pose
 
     def update_features(self, feat, alpha=0.95):
         self.curr_feat = feat
@@ -207,7 +237,7 @@ class STrack(BaseTrack):
                     stracks[i].prediction = prediction
 
 
-
+    ''' THIS FUNCTIONS IS FOR INITIATION OF A TRACK WITH NEW DETECTIONS'''
     def activate_mamba(self, mamba_prediction, frame_id):
         """Start a new tracklet"""
         self.mamba_prediction = mamba_prediction
@@ -233,7 +263,7 @@ class STrack(BaseTrack):
 
 
 
-
+    ''' THIS FUNCTIONS IS FOR RE-ACTIVATING THE LOST TRACKS'''
     def re_activate_mamba(self, new_track, frame_id, new_id=False, state = None):
         
         # self.prediction = self.mamba_prediction.prediction
@@ -265,8 +295,8 @@ class STrack(BaseTrack):
         self.score = new_track.score
 
 
-    
-    def update_mamba(self, new_track, frame_id, update_feature = False, state = None):
+    ''' THIS FUNCTIONS IS FOR UPDATING THE TRACKLET INFORMATION FOR ALREADY EXISTING TRACKS '''
+    def update_mamba(self, new_track, frame_id, update_feature = False, state = None, score = None):
         """
         Update a matched track
         :type new_track: STrack
@@ -288,20 +318,26 @@ class STrack(BaseTrack):
 
 
         self.prediction = new_tlwh
-        self.state = TrackState.Tracked   
+      
         if state == "Virtual":
             self.state = TrackState.Virtual
+            self.score = score
+            self.is_activated = False
+            self.is_virtual = True
+            # print(" state of the object is : ", self.state)
+
             if update_feature:
                 self.update_features(new_track.curr_feat, alpha = 0.85)
             
         else:
+            self.state = TrackState.Tracked  
+            self.score = new_track.score
+            self.is_activated = True
+
             if update_feature:
                 self.update_features(new_track.curr_feat)
-
-        self.is_activated = True
-
-        self.score = new_track.score
-       
+        
+     
 
 
 
@@ -402,7 +438,7 @@ class MambaTrackerDiffMOT(object):
         self.new_track_thresh = args.new_track_thresh
 
 
-        self.virtual_track_buffer = 5
+        self.virtual_track_buffer = args.virtual_track_buffer
 
          # ReID module
         self.proximity_thresh = args.proximity_thresh
@@ -419,34 +455,21 @@ class MambaTrackerDiffMOT(object):
         #######################################################################
         BaseTrack.reset_id()
 
-    # Function to scale bounding boxes to the new aspect ratio
-    def scale_bounding_boxes(self, bounding_boxes,scale):
-        # scale_x = scale[1]
-        # scale_y = scale[0]
-        scale_old = scale
-        # print(" scale x is : ", scale_x)
-        # print("scale y is : ", scale_y)
-        scaled_boxes = []
-        for (x_min, y_min, x_max, y_max) in bounding_boxes:
-            # Scale the coordinates
-            new_x_min = int(x_min * scale_old)
-            new_y_min = int(y_min * scale_old)
-            new_x_max = int(x_max * scale_old)
-            new_y_max =  int(y_max * scale_old)
-            scaled_boxes.append([new_x_min, new_y_min, new_x_max, new_y_max])
-        
-        
-        return np.array(scaled_boxes)
-
+    def terminate_virtual_tracks(self):
+        current_virtual_tracks = [t for t in self.virtual_stracks if t.state == TrackState.Virtual]
+        for track in current_virtual_tracks:
+            if self.frame_id - track.last_seen > self.virtual_track_buffer:
+                self.virtual_stracks.remove(track)
+                self.removed_stracks.append(track)
         
     def update(self, output_results, img_info, img_size, img, tag):
         self.frame_id += 1
        
-        activated_stracks = []
-        refind_stracks = []
-        lost_stracks = []
-        removed_stracks = []
-        virtual_stracks = []
+        activated_stracks = [] ## Already existing tracklets are stored in this
+        refind_stracks = []  ## Tracklets that are lost and then found again are stored in this
+        lost_stracks = []    ## Lost tracklets are stored in this
+        removed_stracks = []    ## tracklet IDS that are completely gone are stored in this
+        virtual_stracks = []    ### tracklets which are not matched in STAGE 1 and can be occluded are stored in this
 
         img_h, img_w = img_info[0], img_info[1]            ### THIS IS THE ACTUAL IMAGE INFO
         
@@ -485,8 +508,6 @@ class MambaTrackerDiffMOT(object):
             dets = []
             scores_keep = []
   
-
-        # dets /=scale_old
         '''Extract embeddings '''
      
             ############### THIS IS FROM BOTSORT DEFAULT CODE ########################
@@ -523,14 +544,26 @@ class MambaTrackerDiffMOT(object):
         unconfirmed = []
         tracked_stracks = []  # type: list[STrack]
         for track in self.tracked_stracks:
-            if not track.is_activated:
-                unconfirmed.append(track)
-            else:
+            if (track.is_activated):
                 tracked_stracks.append(track)
+                
+            elif track.is_virtual:
+                virtual_stracks.append(track)
+            else:
+                unconfirmed.append(track)
+                
+            # if track.is_virtual:
+            #     virtual_stracks.appeend(track)
+            #     tracked_stracks.append(track)
 
         ''' Step 2: First association, with high score detection boxes'''
-        strack_pool = joint_stracks(tracked_stracks, self.lost_stracks)
-        # Predict the current location with KF
+        # strack_pool = joint_stracks(tracked_stracks, self.lost_stracks)
+        new_tracklets = []
+        new_tracklets.extend(self.lost_stracks)
+        new_tracklets.extend(self.virtual_stracks)
+        strack_pool = joint_stracks(tracked_stracks, new_tracklets)
+        
+        # Predict the current location withdets_embs KF
         
         STrack.predict_mamba(strack_pool, img_info)
 
@@ -600,9 +633,11 @@ class MambaTrackerDiffMOT(object):
         # matches, u_track, u_detection = matching.linear_assignment(dists, thresh=self.args.match_thresh)
         # matched, u_track, u_det = associations.associate(dets, strack_pool, features_keep, self.args.match_thresh, self.args.w_ass_emb, aw_param = 0.5)
        
-
+        ''' THESE ARE THE MATCHES AFTER 1st ROUND OF ASSOCIATION'''
+        # print("Matched tracks at first step of association include : \n")
         for itracked, idet in matches:
             track = strack_pool[itracked]
+            # print(track)
             det = detections[idet]   
             alp = dets_alpha[idet]
             if track.state == TrackState.Tracked:
@@ -618,10 +653,8 @@ class MambaTrackerDiffMOT(object):
                 refind_stracks.append(track)
 
 
-
         predictions_for_virtual_detections = []
-        virtual_detections_list = []
-        virtual_detections_scores = []
+        
         if len(potential_multiple_matches) > 0:
             for i_untracked in u_track:
                 # if  strack_pool[i_untracked] in potential_multiple_matches[:, 0]:
@@ -629,8 +662,7 @@ class MambaTrackerDiffMOT(object):
                 for entry in potential_multiple_matches:
                     if strack_pool[i_untracked] in entry[0]:
                         predictions_for_virtual_detections.append([strack_pool[i_untracked], entry[1], entry[2]])
-                        virtual_detections_list.append(entry[1])
-                        virtual_detections_scores.append(entry[2])
+                        
             print(" potential matches were : ", potential_multiple_matches)
             print(" predictions with virtual detections : ", predictions_for_virtual_detections)
                     
@@ -660,26 +692,50 @@ class MambaTrackerDiffMOT(object):
         r_tracked_stracks = [strack_pool[i] for i in u_track if strack_pool[i].state == TrackState.Tracked]
         dists, keypoint_dists, _ = matching.iou_distance(r_tracked_stracks, detections_second, img, association = "second_associations", buffer_size = 0.4)
         matches, u_track, u_detection_second = matching.linear_assignment(dists, thresh=0.5)
-        # if len(u_track) > 0:
-            # print("unmatced tracks after 2nd association : ", [r_tracked_stracks[idx] for idx in u_track])
+        if len(u_track) > 0:
+            print("unmatched tracks after 2nd association : ", [r_tracked_stracks[idx] for idx in u_track])
 
         
-        filtered_virtual_detections = [entry for entry in predictions_for_virtual_detections if entry[0] not in matches]
-        if len(filtered_virtual_detections) > 0:
-            print(" filtered virtual detections are : ", filtered_virtual_detections)
-      
-        filtered_u_track = []
-        for i_untracked in u_track:
-          
-            for entry in filtered_virtual_detections:
-                if r_tracked_stracks[i_untracked] != entry[0]:
-                    filtered_u_track.append(i_untracked)
+        # filtered_virtual_detections = [entry for entry in predictions_for_virtual_detections if entry[0] not in matches]
         
-        u_track = filtered_u_track
-        # if len(filtered_u_track) > 0:
-        #     print("filtered unytracked filews after 2nd association is : ", [r_tracked_stracks[idx] for idx in u_track])
+        
+        # if len(filtered_virtual_detections) > 0:
+        #     print(" filtered virtual detections are : ", filtered_virtual_detections)
+      
+        filtered_virtual_detections  = []   
+        filtered_u_track = []
+        if len(predictions_for_virtual_detections) > 0:
+            for i_untracked in u_track:
+                # print(" predictions for virtual detections  list is : ", predictions_for_virtual_detections[:, 0])
+                if r_tracked_stracks[i_untracked] not in [entry[0] for entry in predictions_for_virtual_detections]:
+                # if r_tracked_stracks[i_untracked] not in predictions_for_virtual_detections[:, 0]:
+                    filtered_u_track.append(i_untracked)
+               
+                    # if r_tracked_stracks[i_untracked] not in predictions_for_virtual_detections[:, 0]:
+                    #     # filtered_u_track.append(r_stracked[i_untracked])
+                    #     filtered_u_track.append(i_untracked)
+        
+            for entry in predictions_for_virtual_detections:
+                if entry[0] in [r_tracked_stracks[i_untracked] for i_untracked in u_track]:
+                    filtered_virtual_detections.append(entry)
+            # if r_tracked_stracks[i_untracked] not in predictions_for_virtual_detections[:, 0]:
+            #     filtered_u_track.append(i_untracked)
+            u_track = filtered_u_track
+
+
+        # if len(u_track) > 0:
+        #     print("unmatches tracklets after second association are : ")
+        #     for i_untracked in u_track:
+        #         print(r_tracked_stracks[i_untracked], "    ", r_tracked_stracks[i_untracked].state)
+
+        if len(filtered_u_track) > 0:
+            print("filtered untracked files after 2nd association is : ", [r_tracked_stracks[idx] for idx in u_track])
+        
+        if len(matches) > 0:
+            print("matched tracks in 2nd association : \n")
         for itracked, idet in matches:
             track = r_tracked_stracks[itracked]
+            print(track)
             det = detections_second[idet]
 
         
@@ -691,17 +747,7 @@ class MambaTrackerDiffMOT(object):
 
             else:
                 track.re_activate_mamba(det, self.frame_id, new_id=False)
-                refind_stracks.append(track)
-
-      
-
-        # predictions_virtual_copy = predictions_for_virtual_detections.copy()
-        # for i_tracked, i_det in matches:
-        #     for i_virtual in predictions_for_virtual_detections:
-        #         if r_tracked_stracks[i_tracked] in predictions_for_virtual_detections[i_virtual][0]:
-        #             predictions_virtual_copy.delete()
-
-       
+                refind_stracks.append(track)     
         ''' STARTING WITH VIRTUAL DETECTION TASKS'''
 
         # if len(u_track) > 0:
@@ -721,73 +767,52 @@ class MambaTrackerDiffMOT(object):
                 virtual_detections_list.append(filtered_virtual_detections[index][1])
                 virtual_detections_scores.append(filtered_virtual_detections[index][2])  # Create virtual detection with same bounding box as prediction
                 virtual_detections_tracks.append(filtered_virtual_detections[index][0])
-                # print(" virtual detectipns list is : ", virtual_detections_list)
+                print(" virtual detections tracks is : ", filtered_virtual_detections[index][0])
          
             virtual_detections = [STrack(STrack.tlbr_to_tlwh(tlbr), score = s, padding_window = self.padding_window, feat_history= 30) for
                         (tlbr, s) in zip(virtual_detections_list, virtual_detections_scores)]
             
             
-            virtual_tracks = [track for track in virtual_detections_tracks if ((track.state == TrackState.Tracked) or (track.state == TrackState.Virtual))]
-            dists, _, _ = matching.iou_distance(virtual_tracks, virtual_detections, img, association = "half_first_association")
+            virtual_tracks_for_matching = [track for track in virtual_detections_tracks if ((track.state == TrackState.Virtual) or (track.state == TrackState.Tracked))]
+            dists, _, _ = matching.iou_distance(virtual_tracks_for_matching, virtual_detections, img, association = "half_first_association")
             
             
             matches_virtual, u_unconfirmed_virtual, u_detection_virtual = matching.linear_assignment(dists, thresh=0.7)
-         
+            print(" matched virtual detections are : ", matches_virtual)
             # ''' Virtual Level Associations '''
             for itracked, idet in matches_virtual:
-                track = virtual_tracks[itracked]
+                track = virtual_tracks_for_matching[itracked]
                 det = virtual_detections[idet]
 
-                if track.state == TrackState.Tracked or track.state == TrackState.Virtual:
-                    # track.add_detection(detections_second[idet].tlbr, detections_second[idet].score)
-                    if track.state == TrackState.Tracked:
-                        track.mark_virtual()
-                        track.virtual_frames = 0 ## Reset frame counter if a real detection is found
-                    elif track.state == TrackState.Virtual:
-                        ## Increment virtual frames counter is still virtual
-                        track.virtual_frames +=1
+                if track.state == TrackState.Tracked:
+                    track.mark_virtual()
+                elif track.state == TrackState.Virtual:
+                    track.update_frame_id()
                     
-                    score = virtual_detections[idet].score
-                    if track.virtual_frames == 1:
-                        score = 0.9 * virtual_detections[idet].score
-                    elif track.virtual_frames == 2:
-                        score = 0.85 * virtual_detections[idet].score
-                    elif track.virtual_frames == 3:
-                        score = 0.85 * virtual_detections[idet].score
-                    elif track.virtual_frames == 4:
-                        score = 0.80 * virtual_detections[idet].score
-                    elif track.virtual_frames == 5:
-                        score = 0.75 * virtual_detections[idet].score
-                    # elif track.virtual_frames == 6:
-                    #     score = 0.76 * virtual_detections[idet].score
+                score = virtual_detections[idet].score
+                if track.virtual_frames == 1:
+                    score = 0.9 * virtual_detections[idet].score
+                elif track.virtual_frames == 2:
+                    score = 0.85 * virtual_detections[idet].score
+                elif track.virtual_frames == 3:
+                    score = 0.85 * virtual_detections[idet].score
+                elif track.virtual_frames == 4:
+                    score = 0.80 * virtual_detections[idet].score
+                elif track.virtual_frames == 5:
+                    score = 0.75 * virtual_detections[idet].score
+                    
+                print("{} virtual frames are : {}".format(track,  track.virtual_frames))
+                # print()
 
-                    # elif track.virtual_frames == 7:
-                    #     score = 0.72 * virtual_detections[idet].score
-                    # elif track.virtual_frames == 8:
-                    #     score = 0.70 * virtual_detections[idet].score
-
-                    # elif track.virtual_frames == 9:
-                    #     score = 0.70 * virtual_detections[idet].score
-                    # elif track.virtual_frames == 10:
-                    #     score = 0.70 * virtual_detections[idet].score
-                    
-                    track.add_detection(virtual_detections[idet].tlwh, score)
-                     
-                    # track.add_detection(virtual_detections[idet].tlwh, virtual_detections[idet].score)
-                    track.update_mamba(det, self.frame_id, state = "Virtual")
-                    virtual_stracks.append(track)
-                    if track.virtual_frames > 10:
-                        track.mark_removed()
-                        removed_stracks.append(track)
-
-                elif track.state == TrackState.Lost:
+               
+                track.add_detection(virtual_detections[idet].tlwh, score)
+                # if track.state == TrackState.Lost:
+                #     track.re_activate_mamba(det, self.frame_id, new_id=False, state = "Virtual")
+                # track.add_detection(virtual_detections[idet].tlwh, virtual_detections[idet].score)
+                track.update_mamba(det, self.frame_id, state = "Virtual", score = score)
+                virtual_stracks.append(track)
                     
                     
-                    track.re_activate_mamba(det, self.frame_id, new_id=False, state = "Virtual")
-                    track.state = TrackState.Tracked
-                    # track.virtual_frames += 1 ## Start counter for virtual state
-                    refind_stracks.append(track)
-                    # virtual_stracks.append(track)
                     
 
 
@@ -809,12 +834,16 @@ class MambaTrackerDiffMOT(object):
             #         removed_stracks.append(track)
          
 
-            for it in u_track:
-                track = r_tracked_stracks[it]
-                if not track.state == TrackState.Lost:
-                    track.mark_lost()
-                    lost_stracks.append(track)
+        for it in u_track:
+            track = r_tracked_stracks[it]
+            if not track.state == TrackState.Lost:
+                track.mark_lost()
+                lost_stracks.append(track)
 
+        # if len(u_track) > 0:
+        #     # print("unmatches tracklets after Virtual  association are : ")
+        #     for i_untracked in u_track:
+        #         print(r_tracked_stracks[i_untracked], "    ", r_tracked_stracks[i_untracked].state)
         '''Deal with unconfirmed tracks, usually tracks with only one beginning frame'''
 
         detections = [detections[i] for i in u_detection]
@@ -869,7 +898,7 @@ class MambaTrackerDiffMOT(object):
             activated_stracks.append(track)
         """ Step 5: Update state"""
         
-        # print("UPDATE STATS (DOING SOMETHING WITH LOST TRACKS)")
+        ''' REMOVING THE LOST TRACKS IF THEY HAVE EXCEEDED THERE LIFETIME OF BEING LOST'''
         for track in self.lost_stracks:
             if self.frame_id - track.end_frame > self.max_time_lost:
                 track.mark_removed()
@@ -879,19 +908,27 @@ class MambaTrackerDiffMOT(object):
             if self.frame_id - track.end_frame > self.virtual_track_buffer:
                 track.mark_removed()
                 removed_stracks.append(track)
-
      
 
         """ Merge """
         self.tracked_stracks = [t for t in self.tracked_stracks if t.state == TrackState.Tracked]
         self.tracked_stracks = joint_stracks(self.tracked_stracks, activated_stracks)
         self.tracked_stracks = joint_stracks(self.tracked_stracks, refind_stracks)
-        # self.virtual_stracks = joint_stracks(self.tracked_stracks,s virtual_stracks)
+        # self.virtual_stracks = joint_stracks(self.tracked_stracks, virtual_stracks)
         self.lost_stracks = sub_stracks(self.lost_stracks, self.tracked_stracks)
         self.lost_stracks.extend(lost_stracks)
         self.lost_stracks = sub_stracks(self.lost_stracks, self.removed_stracks)
+        
+        self.virtual_stracks = sub_stracks(self.virtual_stracks, self.tracked_stracks)
+        self.virtual_stracks.extend(virtual_stracks)
+        self.virtual_stracks = sub_stracks(self.virtual_stracks, self.removed_stracks)
+        
         self.removed_stracks.extend(removed_stracks)
         self.tracked_stracks, self.lost_stracks = remove_duplicate_stracks(self.tracked_stracks, self.lost_stracks)
+
+        self.tracked_stracks = joint_stracks(self.tracked_stracks, virtual_stracks)
+        
+        # self.terminate_virtual_tracks()
 
         # output_stracks = [track for track in self.tracked_stracks if track.is_activated]
         output_stracks = [track for track in self.tracked_stracks]
