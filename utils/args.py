@@ -19,6 +19,8 @@ def make_parser():
     parser.add_argument("--dataset_name", type=str, required = True, help="Dataset name")
     parser.add_argument("--model_path", type = str, required = True, help = "Path for the mamba tracker model")
     parser.add_argument("--association", type = str, required = True)
+    parser.add_argument('--virtual_track_buffer', type = int, required = True, help = "Virtual detections creation threshold")
+    
     #################################### BOT SORT #####################
     
     # ReID
@@ -41,6 +43,18 @@ def make_parser():
 
     parser.add_argument("--benchmark", dest="benchmark", type=str, default='dancetrack', help="benchmark to evaluate: MOT17 | MOT20")
  
+
+    ### DIFT Paramaters #####
+    parser.add_argument('--up_ft_index', default=1,  type=int, help='which upsampling block to extract the ft map')
+    parser.add_argument('--ensemble_size', default=4,  type=int, help='ensemble size for getting an image ft map')
+    parser.add_argument('--temperature', default=0.1, type=float, help='temperature for softmax')        
+    parser.add_argument("--n_last_frames", type=int, default=7, help="number of preceeding frames")
+    parser.add_argument("--size_mask_neighborhood", default=12, type=int,  help="We restrict the set of source nodes considered to a spatial neighborhood of the query node")
+    parser.add_argument('--t', default=51, type=int, help='t for diffusion')    
+    parser.add_argument("--topk", type=int, default=5, help="accumulate label from top k neighbors")
+
+
+
     ####################################################################################################################
     parser.add_argument(
         "-f", "--exp_file",
