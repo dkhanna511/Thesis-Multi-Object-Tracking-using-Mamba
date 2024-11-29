@@ -11,7 +11,7 @@ import os
 from PIL import Image
 from torchvision.transforms import PILToTensor
 import cv2
-from .dift_utils import extract_feature, read_frame, label_propagation
+# from .dift_utils import extract_feature, read_frame, label_propagation
 
 class MyUNet2DConditionModel(UNet2DConditionModel):
     def forward(
@@ -195,7 +195,7 @@ class SDFeaturizer:
         onestep_pipe = OneStepSDPipeline.from_pretrained(sd_id, unet=unet, safety_checker=None)
         onestep_pipe.vae.decoder = None
         onestep_pipe.scheduler = DDIMScheduler.from_pretrained(sd_id, subfolder="scheduler")
-        gc.collect()
+        # gc.collect()
         onestep_pipe = onestep_pipe.to("cuda")
         onestep_pipe.enable_attention_slicing()
         onestep_pipe.enable_xformers_memory_efficient_attention()
@@ -209,75 +209,6 @@ class SDFeaturizer:
         self.null_prompt = null_prompt
         self.pipe = onestep_pipe
 
-
-
-    def compute_embedding(self, model, img, bbox, tag):
-        if self.cache_name != tag.split(":")[0]:
-            self.load_cache(tag.split(":")[0])
-
-        if tag in self.cache:
-            embs = self.cache[tag]
-            if embs.shape[0] != bbox.shape[0]:
-                raise RuntimeError(
-                    "ERROR: The number of cached embeddings don't match the "
-                    "number of detections.\nWas the detector model changed? Delete cache if so."
-                )
-            return embs
-
-        # if self.model is None:
-        #     self.initialize_model()
-
-        # Generate all of the patches
-        crops = []
-        if self.grid_off:
-            # Basic embeddings
-            h, w = img.shape[:2]
-            results = np.round(bbox).astype(np.int32)
-            results[:, 0] = results[:, 0].clip(0, w)
-            results[:, 1] = results[:, 1].clip(0, h)
-            results[:, 2] = results[:, 2].clip(0, w)
-            results[:, 3] = results[:, 3].clip(0, h)
-
-            crops = []
-            for p in results:
-                crop = img[p[1] : p[3], p[0] : p[2]]
-                crop = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
-                crop = cv2.resize(crop, self.crop_size, interpolation=cv2.INTER_LINEAR).astype(np.float32)
-                if self.normalize:
-                    crop /= 255
-                    crop -= np.array((0.485, 0.456, 0.406))
-                    crop /= np.array((0.229, 0.224, 0.225))
-                crop = torch.as_tensor(crop.transpose(2, 0, 1))
-                crop = crop.unsqueeze(0)
-                crops.append(crop)
-        else:
-            # Grid patch embeddings
-            for idx, box in enumerate(bbox):
-                crop = self.get_horizontal_split_patches(img, box, tag, idx)
-                crops.append(crop)
-        crops = torch.cat(crops, dim=0)
-
-        # # Create embeddings and l2 normalize them
-        # embs = []
-        # for idx in range(0, len(crops), self.max_batch):
-        #     batch_crops = crops[idx : idx + self.max_batch]
-        #     batch_crops = batch_crops.cuda()
-        #     with torch.no_grad():
-        #         batch_embs = self.model(batch_crops)
-        #     embs.extend(batch_embs)
-        # embs = torch.stack(embs)
-        # embs = torch.nn.functional.normalize(embs, dim=-1)
-
-        # if not self.grid_off:
-        #     embs = embs.reshape(bbox.shape[0], -1, embs.shape[-1])
-        # embs = embs.cpu().numpy()
-
-        # self.cache[tag] = embs
-
-        
-
-
-        # return embs
 
     @torch.no_grad()
     def forward(self,
@@ -296,7 +227,9 @@ class SDFeaturizer:
         Return:
             unet_ft: a torch tensor in the shape of [1, c, h, w]
         '''
-        img_tensor = img_tensor.repeat(ensemble_size, 1, 1, 1).cuda() # ensem, c, h, w
+        B, C, H, W = img_tensor.shape  # Batch size, Channels, Height, Width
+        img_tensor = img_tensor.cuda()
+        # img_tensor = img_tensor.repeat(ensemble_size, 1, 1, 1).cuda() # ensem, c, h, w
         if prompt == self.null_prompt:
             prompt_embeds = self.null_prompt_embeds
         else:
@@ -305,16 +238,35 @@ class SDFeaturizer:
                 device='cuda',
                 num_images_per_prompt=1,
                 do_classifier_free_guidance=False) # [1, 77, dim]
-        prompt_embeds = prompt_embeds.repeat(ensemble_size, 1, 1)
+            
+
+        prompt_embeds = prompt_embeds.repeat(B, 1, 1)
+
+
+        img_tensor = img_tensor.unsqueeze(1).repeat(1, ensemble_size, 1, 1, 1)  # [B, ensemble_size, C, H, W]
+        img_tensor = img_tensor.view(-1, C, H, W)  # Flatten to [B*ensemble_size, C, H, W]
+
+        prompt_embeds = prompt_embeds.unsqueeze(1).repeat(1, ensemble_size, 1, 1)  # [B, ensemble_size, 77, dim]
+        prompt_embeds = prompt_embeds.view(-1, 77, prompt_embeds.shape[-1])  # Flatten to [B*ensemble_size, 77, dim]
+
         unet_ft_all = self.pipe(
             img_tensor=img_tensor,
             t=t,
             up_ft_indices=[up_ft_index],
             prompt_embeds=prompt_embeds)
-        unet_ft = unet_ft_all['up_ft'][up_ft_index] # ensem, c, h, w
-        unet_ft = unet_ft.mean(0, keepdim=True) # 1,c,h,w
-        return unet_ft
+        unet_ft = unet_ft_all['up_ft'][up_ft_index] # [B*ensemble_size, c, h, w]
+        unet_ft = unet_ft.view(B, ensemble_size, *unet_ft.shape[1:])  # [B, ensemble_size, c, h, w]
+        unet_ft = unet_ft.mean(1)  # Average over ensemble_size dimension, resulting in [B, c, h, w]
+        # print(" shape of unet is : ", unet_ft.shape)
+        # unet_ft = unet_ft.mean(0, keepdim=True) # 1,c,h,w
+        # if len(unet_ft.shape) == 3:  # dim, h, w
+        #     # unet_ft = unet_ft.unsqueeze(0)  # Make it 1, dim, h, w
+        #     print(" coming here?")
+        #     val = unet_ft.unsqueeze(0)
+        #     return val
+        
 
+        return unet_ft
 
 class SDFeaturizer4Eval(SDFeaturizer):
     def __init__(self, sd_id='stabilityai/stable-diffusion-2-1', null_prompt='', cat_list=[]):
@@ -333,7 +285,7 @@ class SDFeaturizer4Eval(SDFeaturizer):
 
         self.pipe.tokenizer = None
         self.pipe.text_encoder = None
-        gc.collect()
+        # gc.collect()
         torch.cuda.empty_cache()
 
 

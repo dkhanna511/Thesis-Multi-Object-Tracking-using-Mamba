@@ -7,6 +7,7 @@ class TrackState(object):
     Tracked = 1
     Lost = 2
     Removed = 3
+    Virtual = 4
 
 
 class BaseTrack(object):
@@ -23,6 +24,7 @@ class BaseTrack(object):
     start_frame = 0
     frame_id = 0
     time_since_update = 0
+    virtual_frames = 0
 
     # multi-camera
     location = (np.inf, np.inf)
@@ -53,5 +55,13 @@ class BaseTrack(object):
     def mark_lost(self):
         self.state = TrackState.Lost
 
+    def mark_virtual(self):
+        self.state = TrackState.Virtual
+        self.virtual_frames =1
+    
+    def update_frame_id(self):
+        self.virtual_frames +=1
+
     def mark_removed(self):
         self.state = TrackState.Removed
+        

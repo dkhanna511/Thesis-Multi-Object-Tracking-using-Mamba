@@ -12,7 +12,10 @@ from trackers.mamba_tracker import matching, matching_hybrid
 from .basetrack import BaseTrack, TrackState       ######## THIS IS REALLY IMPORTANT, THIS KEEPS TRACK OF ALL THE TRACKLETS
 from .gmc import GMC
 from .src.models.dift_sd import SDFeaturizer
-from .src.models.dift_utils import read_frame, extract_feature, label_propagation
+# from src.models.dift_adm import
+# from .src.models.dift_utils import read_frame, extract_feature, label_propagation
+from .src.models.dift_utils import DiffusionEmbeddingComputer
+
 import queue
 
 from .cmc import CMCComputer
@@ -225,6 +228,7 @@ class STrack(BaseTrack):
             # print("tracklet before prediction after padding : \n", tracklets)
             # print(" image size passed into the predictor is :", img_size)
             multi_prediction = STrack.mamba_predictor.multi_predict(tracklets, img_size)
+             
             # print(" \npredicted tracklet is  : \n", multi_prediction)
             for i, multi_pred in enumerate(multi_prediction):
                 stracks[i].prediction = multi_pred
@@ -464,6 +468,7 @@ class MambaTrackerDift(object):
 
         # if args.with_reid:
         self.embedder = EmbeddingComputer(args.dataset_name, test_dataset = self.args.test, grid_off = True)
+        self.diffusion_embedder = DiffusionEmbeddingComputer(args.dataset_name, test_dataset = self.args.test, grid_off = True)
         self.SD_feature_model = SDFeaturizer()
         self.que = queue.Queue(args.n_last_frames)
 
@@ -541,7 +546,12 @@ class MambaTrackerDift(object):
         frame1=None
         # self.diff_dets_embds = 0
         # start_time_dift = time.time()
-        self.diff_dets_embds = extract_feature(self.args, self.SD_feature_model, frame1, dets, img) #  dim x h*w
+        self.diff_dets_embds = np.ones((dets.shape[0], 1))
+        if dets.shape[0]!=0:
+                self.diff_dets_embds = self.diffusion_embedder.extract_feature(self.args, self.SD_feature_model, frame1, dets, img, tag) #  dim x h*w
+
+        # gc.collect()
+        torch.cuda.empty_cache()
         # print(" diffusion detection embeddings values are : ", self.diff_dets_embds)
         # print(" time taken to run rhe feature extractor :  {}".format(time.time() - start_time_dift))
         # print(" self. diffusion detection embeddings are : ", self.diff_dets_embds.shape)
@@ -565,6 +575,9 @@ class MambaTrackerDift(object):
         if dets.shape[0] != 0:
             dets_embs = self.embedder.compute_embedding(img, dets, tag)
             # print(" dets_embs is : ", dets_embs)
+        
+        # gc.collect()
+        torch.cuda.empty_cache()
         # print("dets are : ", dets.shape)
         trust = (scores_keep - self.det_thresh) / (1 - self.det_thresh)
         af = self.alpha_fixed_emb
@@ -1015,6 +1028,7 @@ class MambaTrackerDift(object):
 
         # output_stracks = [track for track in self.tracked_stracks if track.is_activated]
         output_stracks = [track for track in self.tracked_stracks]
+        gc.collect()
         return output_stracks
 
 
