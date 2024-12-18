@@ -3,6 +3,7 @@ import matplotlib.patches as patches
 from torch.utils.data import DataLoader
 from torchvision.transforms import functional as F
 from models_mamba import FullModelMambaBBox, BBoxLSTMModel
+from mambaAttention import FullModelMambaBBoxAttention
 import torch
 import torch.nn as nn
 from datasets import MOTDatasetBB
@@ -11,7 +12,7 @@ import os
 import cv2
 import argparse
 import glob
-import utils
+import training_utils
 
 import time
 def load_image(image_path):
@@ -90,7 +91,7 @@ def visualize_tracking(dataloader, model, root_dir, device, window_size, model_t
 
             # print("seq_info[0] : ", seq_info[0])
             for i, frames in enumerate(seq_info):
-                # print(" frames are : ", frames[1])
+                # print(" frames are : ", frames)
                 # print("inputs[i] are : ", inputs[i])
                 # print(" inputs are : ", inputs)
                 # print("i is : ", i)
@@ -170,10 +171,10 @@ def visualize_tracking(dataloader, model, root_dir, device, window_size, model_t
         
         
         # saved_dir = os.listdir("visualizations/{}_{}/{}")
-        # sequence_files = "visualizations/{}_{}/{}".format(model_type, window_size, root_dir.split("/")[1])
+        sequence_files = "visualizations/{}_{}/{}".format(model_type, window_size, root_dir.split("/")[1])
         # saved_dir = os.listdir(sequence_main)
-        # sequence_main = [entry for entry in sequence_files if os.path.isdir(entry)]
-        # print("sequence_main is : ", sequence_main)
+        sequence_main = [entry for entry in sequence_files if os.path.isdir(entry)]
+        print("sequence_main is : ", sequence_main)
         # print(saved_dir)
         video_path = "visualizations/{}_{}/{}".format(model_type, window_size, root_dir.split("/")[1])
         sequence_file = glob.glob("visualizations/{}_{}/{}".format(model_type, window_size, root_dir.split("/")[1] + '/*'))
@@ -200,7 +201,7 @@ def visualize_tracking(dataloader, model, root_dir, device, window_size, model_t
             
             # Define the video writer object
             fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # Codec for .mp4
-            fps = 10  # Frames per second
+            fps = 20  # Frames per second
             out = cv2.VideoWriter(output_video_path, fourcc, fps, size)
             
             for image in sequence_images:
@@ -218,8 +219,11 @@ def main():
 
     # Add arguments
     parser.add_argument('--dataset', type=str, required=True, help="Path to the dataset file.")
-    parser.add_argument('--window_size', type = str, default = 10, required = False, help = "Window size of sequence for tracklets")
-    parser.add_argument('--model_type', type=str, choices = ["bi-mamba", "vanilla-mamba", "LSTM"], required = True, help = "model selection for testing" )
+    parser.add_argument('--window_size', type = str, default = "variable", required = False, help = "Window size of sequence for tracklets")
+    parser.add_argument('--model_type', type=str, choices = ["bi-mamba", "vanilla-mamba", "LSTM", "attention-mamba"], required = True, help = "model selection for testing" )
+    parser.add_argument('--device', type=str,  required = True, help = "device for inferencing" )
+    # parser.add_argument('--device', type=str,  required = True, help = "device for inferencing" )
+    
     # Parse the arguments
     args = parser.parse_args()
 
@@ -232,23 +236,32 @@ def main():
     num_layers = 4## For LSTM
     embedding_dim = 128 ## For Mamba
     num_blocks = 3 ## For Mamba
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    
+    # device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+ 
+    device = args.device
     # Load dataset and dataloader
     root_dir = args.dataset
     window_size = args.window_size
     model_type = args.model_type
     
-    train_path = os.path.join("datasets", root_dir, "train_copy_testing")
+    if args.dataset == "dancetrack":
+        context_length = 5
+    elif args.dataset == "sportsmot_publish":
+        context_length = 10
+    
+    
+    train_path = os.path.join("datasets", root_dir, "val")
     # best_model_name = "best_model_bbox_{}_{}.pth".format(root_dir, model_type)
-    best_model_name = "best_model_bbox_sportsmot_bi-mamba.pth"
+    # best_model_name = "running_models/best_model_bbox_sportsmot_publish_variable_vanilla-mamba_20_October.pth"
+    best_model_name = "best_model_bbox_dancetrack_variable_attention-mamba_30_October.pth"
     # print("best model name is : ", best_model_name)
     print("train path is : ", train_path)
-    
+    from functools import partial
+    collate_fn_with_padding = partial(training_utils.custom_collate_fn_fixed, context_length= context_length)
     # exit(0)
     # Adjust path to your dataset
-    dataset = MOTDatasetBB(train_path, window_size=window_size)
-    dataloader = DataLoader(dataset, batch_size=1, shuffle=False, collate_fn= utils.custom_collate_fn_fixed)
+    dataset = MOTDatasetBB(train_path, window_size=window_size, augment = False)
+    dataloader = DataLoader(dataset, batch_size=1, shuffle=False, collate_fn= collate_fn_with_padding)
     # for inputs, targets, sequences in dataloader:
     #     print("sequences are :", sequences)
 
@@ -258,6 +271,9 @@ def main():
     if model_type == "bi-mamba" or model_type == "vanilla-mamba":
         model = FullModelMambaBBox(input_size,embedding_dim, num_blocks, output_size, mamba_type =  model_type).to(device)
     # exit(0)
+    
+    if model_type == "attention-mamba":
+        model = FullModelMambaBBoxAttention(input_size,embedding_dim, num_blocks, output_size, num_heads = 4, mamba_type =  model_type).to(device)
     else:
         model = BBoxLSTMModel(input_size, hidden_size, output_size, num_layers).to(device)
 
