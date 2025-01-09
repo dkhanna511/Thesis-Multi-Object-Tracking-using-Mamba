@@ -11,11 +11,13 @@ from .mamba_predictor import MambaPredictor
 from trackers.mamba_tracker import matching, matching_hybrid
 from .basetrack import BaseTrack, TrackState       ######## THIS IS REALLY IMPORTANT, THIS KEEPS TRACK OF ALL THE TRACKLETS
 from .gmc import GMC
-from .src.models.dift_sd import SDFeaturizer
+from .src.models.dift_sd import SDFeaturizer, SDFeaturizer4Eval
+# from .src.models.dift_adm import ADMFeaturizer, ADMFeaturizer4Eval
 # from src.models.dift_adm import
 # from .src.models.dift_utils import read_frame, extract_feature, label_propagation
 from .src.models.dift_utils import DiffusionEmbeddingComputer
-
+import matplotlib.pyplot as plt
+from sklearn.manifold import TSNE
 import queue
 
 from .cmc import CMCComputer
@@ -25,12 +27,25 @@ from .embedding import EmbeddingComputer
 # import associations
 import time
 
+global args_global
+args_global = None
+
+
 torch.set_num_threads(16)  # Reduce the number of threads
 from .cmc import CMCComputer
 class STrack(BaseTrack):
 
-    mamba_predictor = MambaPredictor(model_type = "bi-mamba", dataset_name = "MOT20", model_path = None)
+    # mamba_predictor = MambaPredictor(model_type = "bi-mamba", dataset_name = "MOT20", model_path = None)
     # mamba_predictor = 
+    mamb_predictor = None
+
+    @classmethod
+    def set_mamba_predictor(cls, args_new):
+        """
+        Initialize the MambaPredictor at the class level.
+        """
+        cls.mamba_predictor = MambaPredictor(args_new)
+        
     def __init__(self, tlwh, score, padding_window, feat=None, temp_feat = None, diffusion_feat = None,  feat_history = 30):
 
         # wait activate
@@ -449,7 +464,11 @@ class MambaTrackerDift(object):
         self.buffer_size = int(frame_rate / 30.0 * args.track_buffer)
         self.max_time_lost = self.buffer_size
         self.model_path = args.model_path
-        self.mamba_prediction_cl = MambaPredictor(model_type = self.model_type, dataset_name  = self.dataset_name, model_path = self.model_path)
+        # self.mamba_prediction_cl = MambaPredictor(model_type = self.model_type, dataset_name  = self.dataset_name, model_path = self.model_path)
+        STrack.set_mamba_predictor(args_new = self.args)
+
+        self.mamba_prediction_cl = MambaPredictor(args_new = self.args)
+        
         self.cmc = CMCComputer()
         ################################3 BOT SORT ###########################
         self.track_high_thresh = args.track_high_thresh
@@ -468,10 +487,13 @@ class MambaTrackerDift(object):
 
         # if args.with_reid:
         self.embedder = EmbeddingComputer(args.dataset_name, test_dataset = self.args.test, grid_off = True)
-        self.diffusion_embedder = DiffusionEmbeddingComputer(args.dataset_name, test_dataset = self.args.test, grid_off = True)
+        self.diffusion_embedder = DiffusionEmbeddingComputer(args, test_dataset = self.args.test, grid_off = True)
         self.SD_feature_model = SDFeaturizer()
+        # self.ADM_feature_model = ADMFeaturizer()
+        # self.SD_feature_model = SDFeaturizer4Eval()
+        
         self.que = queue.Queue(args.n_last_frames)
-
+        print("USING DIFFUSION FEATURES")
         self.frame1_feat = 0
         self.alpha_fixed_emb = 0.95
             # self.encoder = FastReIDInterface(args.fast_reid_config, args.fast_reid_weights, args.device)
@@ -492,6 +514,8 @@ class MambaTrackerDift(object):
     
     def update(self, output_results, img_info, img_size, img, tag):
         self.frame_id += 1
+        global args_global
+        args_global = self.args
         
         activated_stracks = [] ## Already existing tracklets are stored in this
         refind_stracks = []  ## Tracklets that are lost and then found again are stored in this
@@ -541,17 +565,11 @@ class MambaTrackerDift(object):
             ############### THIS IS FROM BOTSORT DEFAULT CODE ########################
             # features_keep = self.encoder.inference(img, dets)
        
-        # if self.frame_id ==1:
-        # frame1, ori_h, ori_w = read_frame(img) ### Basically extracts pixels from the frame to pass it to the model to get features from it. 
-        frame1=None
-        # self.diff_dets_embds = 0
-        # start_time_dift = time.time()
-        self.diff_dets_embds = np.ones((dets.shape[0], 1))
-        if dets.shape[0]!=0:
-                self.diff_dets_embds = self.diffusion_embedder.extract_feature(self.args, self.SD_feature_model, frame1, dets, img, tag) #  dim x h*w
+        # if dets.shape[0]!=0:
+                # self.diff_dets_embds = self.diffusion_embedder.extract_feature(self.args, self.SD_feature_model, frame1, dets, img, tag) #  dim x h*w
 
         # gc.collect()
-        torch.cuda.empty_cache()
+        # torch.cuda.empty_cache()
         # print(" diffusion detection embeddings values are : ", self.diff_dets_embds)
         # print(" time taken to run rhe feature extractor :  {}".format(time.time() - start_time_dift))
         # print(" self. diffusion detection embeddings are : ", self.diff_dets_embds.shape)
@@ -574,10 +592,10 @@ class MambaTrackerDift(object):
 
         if dets.shape[0] != 0:
             dets_embs = self.embedder.compute_embedding(img, dets, tag)
-            # print(" dets_embs is : ", dets_embs)
+            # print(" dets_embs shape is : ", dets_embs.shape)
         
         # gc.collect()
-        torch.cuda.empty_cache()
+        # torch.cuda.empty_cache()
         # print("dets are : ", dets.shape)
         trust = (scores_keep - self.det_thresh) / (1 - self.det_thresh)
         af = self.alpha_fixed_emb
@@ -586,17 +604,7 @@ class MambaTrackerDift(object):
             # print(" features keep is : \n", features_keep)
             # np.savetxt("botsort.txt", features_keep)
         # print(" detections before the class thing : \n", dets)
-        if len(dets) > 0:
-            '''Detections'''
-            ###  DETECTIONS ARE GETTING CONVERTED TO TOP LEFT WIDTH HEIGHT FORMAT
-            # if self.args.with_reid:
-            detections = [STrack(STrack.tlbr_to_tlwh(tlbr), score = s, padding_window = self.padding_window,  temp_feat = f, diffusion_feat = diff_feat, feat_history= 30) for
-                        (tlbr, s, f, diff_feat) in zip(dets, scores_keep, dets_embs, self.diff_dets_embds)]
-            # print(" detections are : \n", detections)
-            # detections_second = [STrack(STrack.tlwh, s) for (tlwh, s) in zip(dets, scores_keep)]
-        else:
-            detections = []
-
+        
 
         # exit(0)
         ''' Add newly detected tracklets to tracked_stracks'''
@@ -627,31 +635,90 @@ class MambaTrackerDift(object):
         
         STrack.predict_mamba(strack_pool, img_info)
 
+        
         trk_embs = [st.emb for st in strack_pool]
         trk_embs = np.array(trk_embs)
 
+
+        # if self.frame_id == 1:
+        #     frame1, ori_h, ori_w = self.diffusion_embedder.read_frame(img) ### Basically extracts pixels from the frame to pass it to the model to get features from it. 
+        #     # print(" frame 1 is : ", frame1)    
+        #     self.frame1_feat = self.diffusion_embedder.extract_feature(self.args, self.SD_feature_model, frame1).T #  dim x h*w
+        #     print(" frame 1 features shape is : ", self.frame1_feat.shape)
+        # else:
+        frame_tar, ori_h, ori_w = self.diffusion_embedder.read_frame(img) ### Basically extracts pixels from the frame to pass it to the model to get features from it. 
+        
+        # used_frame_feats = [self.frame1_feat] + [pair[0] for pair in list(self.que.queue)]
+
+        self.diff_dets_embds = np.ones((dets.shape[0], 1))
+        if dets.shape[0] !=0:
+            # frame_feat, feat_tar, _ = self.diffusion_embedder.label_propagation(self.args, self.SD_feature_model, frame_tar, used_frame_feats = None, dets, img, trk_embs,  tag)
+            used_frame_feats = None
+            self.diff_dets_embds = self.diffusion_embedder.label_propagation(self.args, self.SD_feature_model, frame_tar, used_frame_feats, dets, img, trk_embs,  tag)
+            assert not np.isnan(self.diff_dets_embds).any(), "NaN found in self.diff_dets_embds"
+            # print(" bboxes features dimensions is : ", self.diff_dets_embds.shape)
+            # if self.que.qsize() == self.args.n_last_frames:
+            #     self.que.get()
+            # self.que.put([feat_tar])
+
         diffusion_track_embs = [st.diffusion_embs for st in strack_pool]
         diffusion_track_embs = np.array(diffusion_track_embs)
+        assert not np.isnan(diffusion_track_embs).any(), "NaN found in diffusion_track_embs"
+        # print(" frame 1 size is : ", frame1.shape)
+        # print(" original height")
+        # self.diff_dets_embds = 0
+        # start_time_dift = time.time()
         # print(" diffusion track embeddings are : ", diffusion_track_embs)
         # print(" track embeddings ashape is : ", trk_embs)
+        if len(dets) > 0:
+            '''Detections'''
+            ###  DETECTIONS ARE GETTING CONVERTED TO TOP LEFT WIDTH HEIGHT FORMAT
+            # if self.args.with_reid:
+            detections = [STrack(STrack.tlbr_to_tlwh(tlbr), score = s, padding_window = self.padding_window,  temp_feat = f, diffusion_feat = diff_feat, feat_history= 30) for
+                        (tlbr, s, f, diff_feat) in zip(dets, scores_keep, dets_embs, self.diff_dets_embds)]
+            # print(" detections are : \n", detections)
+            # detections_second = [STrack(STrack.tlwh, s) for (tlwh, s) in zip(dets, scores_keep)]
+        else:
+            detections = []
 
         emb_cost = None if (trk_embs.shape[0] == 0 or dets_embs.shape[0] == 0) else trk_embs @ dets_embs.T
         # if emb_cost is not None:
         #     print("embedding cost shape is : ", emb_cost.shape)
-        #     print("embedding cost is :", emb_cost)
+        #     print("embedding cost is :\n", emb_cost)
 
         # ### Diffusion Feature Based Embedding Cost
         # if not (diffusion_track_embs.shape[0]) == 0 :
         #     det_embs= torch.transpose(torch.Tensor(self.diff_dets_embds), 0, 1)
+        # print(" shape of diffusion track embeddings is : ", diffusion_track_embs.shape)
         # diffusion_emb_cost = None if (diffusion_track_embs.shape[0] == 0 or self.diff_dets_embds.shape[0] == 0) else torch.exp(torch.bmm(torch.Tensor(diffusion_track_embs), det_embs) / self.args.temperature).numpy()
         diffusion_emb_cost = None if (diffusion_track_embs.shape[0] == 0 or self.diff_dets_embds.shape[0] == 0) else diffusion_track_embs @ self.diff_dets_embds.T
         
         
+        # Assume features_t1 and features_t2 are arrays of shape (num_boxes, feature_dim)
+        # if diffusion_track_embs.shape ==  self.diff_dets_embds.shape:
+        #     combined_features = np.vstack([diffusion_track_embs, self.diff_dets_embds])
+        #     tsne = TSNE(n_components=2, random_state=42, perplexity  = 4)
+        #     reduced_features = tsne.fit_transform(combined_features)
+
+        #     # Split back into t-1 and t
+        #     reduced_t1 = reduced_features[:len(diffusion_track_embs)]
+        #     reduced_t2 = reduced_features[len(self.diff_dets_embds):]
+
+        #     # Plot
+        #     plt.scatter(reduced_t1[:, 0], reduced_t1[:, 1], label='Frame t-1', alpha=0.7, c='red')
+        #     plt.scatter(reduced_t2[:, 0], reduced_t2[:, 1], label='Frame t', alpha=0.7, c='blue')
+        #     plt.legend()
+        #     plt.title("Feature Space Visualization (t-SNE)")
+        #     plt.show()
+        
+        
+        # contains_nan = np.isnan(diffusion_emb_cost).any()
+        
         # if diffusion_emb_cost is not None:
         #     print(" diffusion embedding cost dimension is : ", diffusion_emb_cost.shape)
-        #     print(" diffusion embedding cost is : ", diffusion_emb_cost)
+        #     print(" diffusion embedding cost is : \n", diffusion_emb_cost)
      
-        ious_dists,  keypoint_dists, potential_multiple_matches = matching.iou_distance(strack_pool, detections, img, association = "first_association", buffer_size = 0.3)
+        ious_dists,  keypoint_dists, potential_multiple_matches = matching.iou_distance(strack_pool, detections, img, association = "first_association", buffer_size = self.args.b1)
         # confidence_dists = matching.calculate_confidence_cost_matrix(strack_pool, detections)
         # print("confidence distances are : \n",confidence_dists)
         # print("confidence dist is : ", confidence_dists)
@@ -666,17 +733,31 @@ class MambaTrackerDift(object):
             else:
                 if diffusion_emb_cost is None:
                     diffusion_emb_cost = 0
+                if emb_cost is None:
+                    emb_cost = 0
+                
                 w_assoc_emb = self.args.w_assoc_emb
                 aw_param = self.args.aw_param
 
-                w_matrix = matching.compute_aw_new_metric(diffusion_emb_cost, w_assoc_emb, aw_param)
-                diffusion_emb_cost *= w_matrix
+                diff_w_matrix = matching.compute_aw_new_metric(diffusion_emb_cost, w_association_emb=0.8, max_diff = 0.5)
+                diffusion_emb_cost *= diff_w_matrix
 
-                final_cost = -(iou_matrix + diffusion_emb_cost)
+                reid_w_matrix = matching.compute_aw_new_metric(emb_cost, w_assoc_emb, aw_param)
+                emb_cost *= reid_w_matrix
+
+                reid_lambda = 0.0
+                reid_beta = 1.0
+                
+                # final_cost = -(iou_matrix + diffusion_emb_cost)
+                # final_cost = 
+                final_cost = (-(iou_matrix + reid_lambda*emb_cost + reid_beta * diffusion_emb_cost))
                 matched_indices = matching.linear_assignment2(final_cost)
         else:
             matched_indices = np.empty(shape=(0, 2))
 
+
+
+        # print("matched indices with diffusion embedding cost  is : ", matched_indices)
 
 
         # if min(iou_matrix.shape) > 0:
@@ -698,7 +779,8 @@ class MambaTrackerDift(object):
         #     matched_indices = np.empty(shape=(0, 2))
 
 
-        
+        # print("matched indices with REID embedding cost  is : ", matched_indices)
+
 
         unmatched_detections = []
         for d, det in enumerate(detections):
@@ -786,7 +868,7 @@ class MambaTrackerDift(object):
         
         ''' 2nd LEVEL OF ASSOCIATIONS !!!!!!!!!!!!'''
         r_tracked_stracks = [strack_pool[i] for i in u_track if strack_pool[i].state == TrackState.Tracked]
-        dists, keypoint_dists, _ = matching.iou_distance(r_tracked_stracks, detections_second, img, association = "second_associations", buffer_size = 0.4)
+        dists, keypoint_dists, _ = matching.iou_distance(r_tracked_stracks, detections_second, img, association = "second_associations", buffer_size =self.args.b2)
         matches, u_track, u_detection_second = matching.linear_assignment(dists, thresh=0.5)
         # if len(u_track) > 0:
         #     print("unmatched tracks after 2nd association : ", [r_tracked_stracks[idx] for idx in u_track])
@@ -1028,7 +1110,7 @@ class MambaTrackerDift(object):
 
         # output_stracks = [track for track in self.tracked_stracks if track.is_activated]
         output_stracks = [track for track in self.tracked_stracks]
-        gc.collect()
+        # gc.collect()
         return output_stracks
 
 
