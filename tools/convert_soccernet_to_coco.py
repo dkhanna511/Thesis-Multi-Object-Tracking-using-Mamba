@@ -11,7 +11,7 @@ import cv2
 DATA_PATH = 'datasets/soccernet'
 OUT_PATH = os.path.join(DATA_PATH, 'annotations')
 # SPLITS = ['train', 'val', 'test']
-SPLITS = ['train', "val", "mv"]
+SPLITS = ['train', "val", "test"]
 
 if __name__ == '__main__':
 
@@ -23,7 +23,7 @@ if __name__ == '__main__':
         data_path = os.path.join(DATA_PATH, split)
         out_path = os.path.join(OUT_PATH, '{}.json'.format(split))
         out = {'images': [], 'annotations': [], 'videos': [],
-               'categories': [{'id': 1, 'name': 'dancer'}]}
+               'categories': [{'id': 1, 'name': 'player'}]}
         seqs = os.listdir(data_path)
         image_cnt = 0
         ann_cnt = 0
