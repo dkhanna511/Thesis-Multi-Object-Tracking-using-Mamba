@@ -24,7 +24,7 @@ else:
 
 
 # Base directory to save results
-base_output_dir = 'RESULTS_SportsMOT'
+base_output_dir = 'RESULTS_Soccernet'
 
 current_time = time.localtime()
 formatted_date = time.strftime("%d %B", current_time)
@@ -60,9 +60,9 @@ parameter_sets = [
 
 
 if args.test:
-    run_file_name = "yolox_sportsmot_test.py"
+    run_file_name = "yolox_soccernet_test.py"
 else:
-    run_file_name = "yolox_sportsmot_val.py"
+    run_file_name = "yolox_soccernet_val.py"
 
 
 # Iterate over each parameter set and run the script
@@ -90,7 +90,7 @@ for i, params in enumerate(parameter_sets):
         '-b 1',
         '-d 1' ,
         '--fp16 --fuse',
-        '--dataset_name sportsmot_publish',
+        '--dataset_name soccernet',
         '--model_path running_models/best_model_bbox_dancetrack_variable_bi-mamba_14_October.pth',
         '--association' , params['association'], 
         '--model_type', params['model_type'],

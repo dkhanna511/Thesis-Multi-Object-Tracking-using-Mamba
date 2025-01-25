@@ -42,21 +42,82 @@ os.makedirs(output_dir, exist_ok=True)
 
 # Define a list of different parameter sets
 parameter_sets = [
-    # {'association' : 'diffmot', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(1), 'track_buffer' : 30},
-    # {'association' : 'diffmot', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(2), 'track_buffer' : 30},
-    # {'association' : 'diffmot', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(3), 'track_buffer' : 30},
-    {'association' : 'diffmot', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(5), 'track_buffer' : 30},
-    # {'association' : 'diffmot', 'model_type' : 'attention-mamba', 'virtual_track_buffer' : str(7), 'track_buffer' : 30},
-    # {'association' : 'diffmot', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(10), 'track_buffer' : 30},
-    # {'association' : 'diffmot', 'model_type' : 'attention-mamba', 'virtual_track_buffer': 5, 'track_buffer' : 40},
-    # {'association' : 'diffmot', 'model_type' : 'attention-mamba', 'virtual_track_buffer' : 7, 'track_buffer' : 40},
-    # {'association' : 'diffmot', 'model_type' : 'attention-mamba', 'virtual_track_buffer': 10, 'track_buffer' : 40},
-    # {'association' : 'diffmot', 'model_type' : 'attention-mamba', 'virtual_track_buffer': 5, 'track_buffer' : 50},
-    # {'association' : 'diffmot', 'model_type' : 'attention-mamba', 'virtual_track_buffer' : 7, 'track_buffer' : 50},
+    # {'association' : 'diffmot', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(5), 'track_buffer' : 30, 'max_window': 7, 'num_blocks' : 2},
+    # {'association' : 'diffmot', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(5), 'track_buffer' : 30, 'max_window': 7, 'num_blocks' : 3},
+    # {'association' : 'diffmot', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(5), 'track_buffer' : 30, 'max_window': 7, 'num_blocks' : 4},
+    # {'association' : 'diffmot', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(5), 'track_buffer' : 30, 'max_window': 5, 'num_blocks' : 5},
+    # {'association' : 'diffmot', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(5), 'track_buffer' : 30, 'max_window': 10, 'num_blocks' : 3}
+    
+    # {'association' : 'diffmot', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(5), 'track_buffer' : 30, 't' : str(101),  'up_ft_index' : str(5)},
+    # {'association' : 'diffmot', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(5), 'track_buffer' : 30, 't' : str(151),  'up_ft_index' : str(5)},
+    # {'association' : 'diffmot', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(5), 'track_buffer' : 30, 't' : str(201),  'up_ft_index' : str(5)},
+    # # {'association' : 'diffmot', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(5), 'track_buffer' : 30, 't' : str(21),  'up_ft_index' : str(5)},
+    # {'association' : 'diffmot', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(5), 'track_buffer' : 30, 't' : str(21),  'up_ft_index' : str(4)},
+    # {'association' : 'diffmot', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(5), 'track_buffer' : 30, 't' : str(21),  'up_ft_index' : str(2)},
+    # {'association' : 'diffmot', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(5),'track_buffer' : 30, 't' : str(41),  'up_ft_index' : str(5)},
+    # {'association' : 'diffmot', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(5),'track_buffer' : 30, 't' : str(41),  'up_ft_index' : str(4)},
+    # {'association' : 'diffmot', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(5),'track_buffer' : 30, 't' : str(41),  'up_ft_index' : str(2)},
+    # {'association' : 'diffmot', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(5), 'track_buffer' : 30, 't' : str(51),  'up_ft_index' : str(5)},
+    # {'association' : 'diffmot', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(7), 'track_buffer' : 30, 't' : str(51),  'up_ft_index' : str(4)},
+    # {'association' : 'diffmot', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(10), 'track_buffer' : 30, 't' : str(51),  'up_ft_index' : str(2)},
+    # {'association' : 'diffmot', 'model_type' : 'attention-mamba', 'virtual_track_buffer': 5, 'track_buffer' : 50, 't' : str(21),  'up_ft_index' : 2},
+    # {'association' : 'diffmot', 'model_type' : 'attention-mamba', 'virtual_track_buffer' : 7, 'track_buffer' : 50, 't' : str(21),  'up_ft_index' : 2},
     # {'association' : 'diffmot', 'model_type' : 'attention-mamba', 'virtual_track_buffer': 10, 'track_buffer' : 50}
+    # {'association' : 'diffmot_without_virtual', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(5), 'track_buffer' : 30, 'max_window': 5, 'num_blocks' : 2},
+    # {'association' : 'diffmot_without_virtual', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(5), 'track_buffer' : 30, 'max_window': 5, 'num_blocks' : 3},
+    # {'association' : 'diffmot_without_virtual', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(5), 'track_buffer' : 30, 'max_window': 5, 'num_blocks' : 4},
+    # {'association' : 'diffmot_without_virtual', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(5), 'track_buffer' : 30, 'max_window': 5, 'num_blocks' : 5},
+    # {'association' : 'diffmot_without_virtual', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(5), 'track_buffer' : 30, 'max_window': 7, 'num_blocks' : 2},
+    # {'association' : 'diffmot_without_virtual', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(5), 'track_buffer' : 30, 'max_window': 7, 'num_blocks' : 3},
+    # {'association' : 'diffmot_without_virtual', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(5), 'track_buffer' : 30, 'max_window': 7, 'num_blocks' : 4},
+    # {'association' : 'diffmot_without_virtual', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(5), 'track_buffer' : 30, 'max_window': 7, 'num_blocks' : 5},
+    # {'association' : 'diffmot_without_virtual', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(5), 'track_buffer' : 30, 'max_window': 10, 'num_blocks' : 2},
+    # {'association' : 'diffmot_without_virtual', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(5), 'track_buffer' : 30, 'max_window': 10, 'num_blocks' : 3},
+    {'association' : 'diffmot_without_virtual', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(5), 'track_buffer' : 30, 'max_window': 10, 'num_blocks' : 4},
+    # {'association' : 'diffmot_without_virtual', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(5), 'track_buffer' : 30, 'max_window': 10, 'num_blocks' : 5},
+    # {'association' : 'diffmot_without_virtual', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(5), 'track_buffer' : 30, 'max_window': 12, 'num_blocks' : 2},
+    # {'association' : 'diffmot_without_virtual', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(5), 'track_buffer' : 30, 'max_window': 12, 'num_blocks' : 3},
+    # {'association' : 'diffmot_without_virtual', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(5), 'track_buffer' : 30, 'max_window': 12, 'num_blocks' : 4},
+    # {'association' : 'diffmot_without_virtual', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(5), 'track_buffer' : 30, 'max_window': 12, 'num_blocks' : 5},
+    # {'association' : 'diffmot_without_virtual', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(5), 'track_buffer' : 30, 'max_window': 15, 'num_blocks' : 2},
+    # {'association' : 'diffmot_without_virtual', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(5), 'track_buffer' : 30, 'max_window': 15, 'num_blocks' : 3},
+    # {'association' : 'diffmot_without_virtual', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(5), 'track_buffer' : 30, 'max_window': 15, 'num_blocks' : 4},
+    # {'association' : 'diffmot_without_virtual', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(5), 'track_buffer' : 30, 'max_window': 15, 'num_blocks' : 5},
+    
+    # {'association' : 'diffmot', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(5), 'track_buffer' : 30, 'max_window': 5, 'num_blocks' : 2},
+    # {'association' : 'diffmot', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(5), 'track_buffer' : 30, 'max_window': 5, 'num_blocks' : 3},
+    # {'association' : 'diffmot', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(5), 'track_buffer' : 30, 'max_window': 5, 'num_blocks' : 4},
+    # {'association' : 'diffmot', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(5), 'track_buffer' : 30, 'max_window': 5, 'num_blocks' : 5},
+    # {'association' : 'diffmot', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(5), 'track_buffer' : 30, 'max_window': 7, 'num_blocks' : 2},
+    # {'association' : 'diffmot', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(5), 'track_buffer' : 30, 'max_window': 7, 'num_blocks' : 3},
+    # {'association' : 'diffmot', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(5), 'track_buffer' : 30, 'max_window': 7, 'num_blocks' : 4},
+    # {'association' : 'diffmot', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(5), 'track_buffer' : 30, 'max_window': 7, 'num_blocks' : 5},
+    # {'association' : 'diffmot', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(5), 'track_buffer' : 30, 'max_window': 10, 'num_blocks' : 2},
+    # {'association' : 'diffmot', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(5), 'track_buffer' : 30, 'max_window': 10, 'num_blocks' : 3},
+    # {'association' : 'diffmot', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(5), 'track_buffer' : 30, 'max_window': 10, 'num_blocks' : 4},
+    # {'association' : 'diffmot', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(5), 'track_buffer' : 30, 'max_window': 10, 'num_blocks' : 5},
+    # {'association' : 'diffmot', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(5), 'track_buffer' : 30, 'max_window': 12, 'num_blocks' : 2},
+    # {'association' : 'diffmot', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(5), 'track_buffer' : 30, 'max_window': 12, 'num_blocks' : 3},
+    # {'association' : 'diffmot', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(5), 'track_buffer' : 30, 'max_window': 12, 'num_blocks' : 4},
+    # {'association' : 'diffmot', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(5), 'track_buffer' : 30, 'max_window': 12, 'num_blocks' : 5},
+    # {'association' : 'diffmot', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(5), 'track_buffer' : 30, 'max_window': 15, 'num_blocks' : 2},
+    # {'association' : 'diffmot', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(5), 'track_buffer' : 30, 'max_window': 15, 'num_blocks' : 3},
+    # {'association' : 'diffmot', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(5), 'track_buffer' : 30, 'max_window': 15, 'num_blocks' : 4},
+    # {'association' : 'diffmot', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(5), 'track_buffer' : 30, 'max_window': 15, 'num_blocks' : 5},
+    
+    
+    # {'association' : 'diffmot', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(5), 'track_buffer' : 30, 'max_window': 15, 'num_blocks' : 2},
+    # {'association' : 'diffmot', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(5), 'track_buffer' : 30, 'max_window': 15, 'num_blocks' : 3},
+    # {'association' : 'diffmot', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(5), 'track_buffer' : 30, 'max_window': 15, 'num_blocks' : 4},
+    # {'association' : 'diffmot', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(5), 'track_buffer' : 30, 'max_window': 15, 'num_blocks' : 5},
+    
+    
+    # # {'association' : 'diffmot', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(5), 'track_buffer' : 30, 'max_window': 12, 'num_blocks' : 5},
+    # {'association' : 'diffmot', 'model_type' : 'attention-mamba', 'virtual_track_buffer': str(5), 'track_buffer' : 30, 'max_window': 10, 'num_blocks' : 4},
     
     # Add more parameter sets as needed
 ]
+
 
 
 if args.test:
@@ -68,7 +129,9 @@ else:
 # Iterate over each parameter set and run the script
 for i, params in enumerate(parameter_sets):
     # Create a unique directory for each run
-    final_output_dir = os.path.join(output_dir, f'run_{i+1}')
+    # final_output_dir = os.path.join(output_dir, f'run_{i+1}')
+    final_output_dir = os.path.join(output_dir, 'association_{}_ws_{}_blocks_{}'.format(params['association'], params['max_window'], params['num_blocks']))
+
     output_files_dir = os.path.join(final_output_dir, "output_files/")
     if not os.path.exists(output_files_dir):
         os.makedirs(output_files_dir, exist_ok=True)
@@ -77,6 +140,11 @@ for i, params in enumerate(parameter_sets):
     if not os.path.exists(viz_dir):
         os.makedirs(viz_dir)
    
+    model_name = "sportsmot_ablation/best_model_bbox_sportsmot_publish_variable_attention-mamba_max_window_{}_num_blocks_{}.pth".format(params['max_window'], params['num_blocks'])
+    # model_name = "sportsmot_ablation/best_model_bbox_sportsmot_publish_variable_attention-mamba_max_window_{}_num_blocks_{}_24_December.pth".format(params['max_window'], params['num_blocks'])
+    # model_name = "sportsmot_ablation/best_model_bbox_sportsmot_publish_variable_attention-mamba_max_window_12_num_blocks_5.pth"
+    # model_name = "sportsmot_ablation/best_model_bbox_sportsmot_publish_variable_attention-mamba_max_window_10_num_blocks_2.pth"
+    # model_name = "sportsmot_ablation/best_model_bbox_sportsmot_publish_variable_attention-mamba_max_window_10_num_blocks_4_25_December_NO_AUGMENT.pth"
     # Construct the command with parameters
     experiment_folder = args.expn + "_run_{}".format(i+1)
 
@@ -91,10 +159,14 @@ for i, params in enumerate(parameter_sets):
         '-d 1' ,
         '--fp16 --fuse',
         '--dataset_name sportsmot_publish',
-        '--model_path running_models/best_model_bbox_dancetrack_variable_bi-mamba_14_October.pth',
+        '--model_path', model_name,
         '--association' , params['association'], 
         '--model_type', params['model_type'],
-        '--virtual_track_buffer', params['virtual_track_buffer']
+        '--num_blocks', str(params['num_blocks']),
+        '--max_window', str(params['max_window']),
+        '--virtual_track_buffer', params['virtual_track_buffer'],
+        '--b1 0.0',
+        '--b2 0.0'
     ]
     
     # Run the command
