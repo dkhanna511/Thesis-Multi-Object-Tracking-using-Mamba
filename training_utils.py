@@ -5,7 +5,7 @@ import time
 import iou_calc
 import time
 import shutil
-
+import os
 
 def custom_collate_fn_fixed(batch, context_length= 10):
     # Split the batch into inputs, sequence_names, and targets
@@ -60,18 +60,19 @@ def custom_collate_fn_var(batch):
 
 
 
-def train_var_window(args, model, train_dataloader, val_dataloader, configs):
+def train_var_window(args, model, train_dataloader, val_dataloader, configs, output_dir):
     print("hellow?")
 
     # best_model_path = "best_model_bbox_{}_{}.pth".format(args.dataset, args.model_type)
     best_loss = float('inf')
-
-
+    max_window = configs["max_window"]
+    num_blocks = configs["num_blocks"]
     current_time = time.localtime()
     formatted_date = time.strftime("%d %B", current_time)
     formatted_date = str(formatted_date.split(' ')[0])+ "_" + str(formatted_date.split(' ')[1])
-    
-    best_model_name  = "best_model_bbox_{}_{}_{}_{}".format(args.dataset, args.window_size, args.model_type, formatted_date) 
+    if not os.path.exists(output_dir):
+        os.makedirs(os.path.join(os.getcwd(), output_dir))
+    best_model_name  = "{}/best_model_bbox_{}_{}_{}_max_window_{}_num_blocks_{}_{}".format(output_dir, args.dataset, args.window_size, args.model_type, max_window, num_blocks, formatted_date) 
     # best_model_path = "best_model_bbox_mot20_{}.pth".format(configs['model_used'])
     best_model_path =  best_model_name + ".pth"
     best_loss = float('inf')
@@ -89,8 +90,9 @@ def train_var_window(args, model, train_dataloader, val_dataloader, configs):
         model.train()
         epoch_loss_criterion_1 = 0.0
         epoch_loss_criterion_2 =0.0
-        for inputs, targets, sequences, input_lengths, masks in train_dataloader:
-            
+        for idx, (inputs, targets, sequences, input_lengths, masks) in enumerate(train_dataloader):
+            if idx ==0:
+                print(" shape pf inputs is : ", inputs.shape)
             # sorted_lengths, perm_idx = input_lengths.sort(0, descending=True)
             # print(" perm idx", perm_idx)
             # inputs_padded = inputs[perm_idx]

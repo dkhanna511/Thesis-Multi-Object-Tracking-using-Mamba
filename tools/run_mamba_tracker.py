@@ -129,10 +129,10 @@ def main(exp, args, num_gpu):
     
     model_type = args.model_type
     # # exit(0)
-    if args.dataset_name == "dancetrack":
-        padding_window  = 5
-    else:
-        padding_window = 10
+    # if args.dataset_name == "dancetrack":
+    #     padding_window  = args.max_window
+    # else:
+    padding_window = args.max_window
     *_, summary = evaluator.evaluate_mamba_track(
             model, is_distributed, args.fp16, trt_file, decoder, exp.test_size, results_folder, model_type = model_type, padding_window= padding_window, model_path = args.model_path
     )
@@ -141,7 +141,7 @@ def main(exp, args, num_gpu):
         # we skip evaluation for inference on test set
         return 
 
-    # # if we evaluate on validation set, 
+    # if we evaluate on validation set, 
     logger.info("\n" + summary)
 
     # # evaluate on the validation set
