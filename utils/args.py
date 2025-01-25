@@ -16,9 +16,17 @@ def make_parser():
     parser.add_argument( "--num_machines", default=1, type=int, help="num of node for training")
     parser.add_argument("--machine_rank", default=0, type=int, help="node rank for multi-node training")
     parser.add_argument("--model_type", type=str, required = True, help="Model type")
+    
+    
+    ###
     parser.add_argument("--dataset_name", type=str, required = True, help="Dataset name")
     parser.add_argument("--model_path", type = str, required = True, help = "Path for the mamba tracker model")
     parser.add_argument("--association", type = str, required = True)
+    parser.add_argument("--max_window", type = int, required = True)
+    parser.add_argument("--num_blocks", type = int, required = True)
+    parser.add_argument("--b1", type =float, required = True)
+    parser.add_argument("--b2", type =float, required = True)
+    
     parser.add_argument('--virtual_track_buffer', type = int, required = True, help = "Virtual detections creation threshold")
     
     #################################### BOT SORT #####################
@@ -45,12 +53,18 @@ def make_parser():
  
 
     ### DIFT Paramaters #####
-    parser.add_argument('--up_ft_index', default=1,  type=int, help='which upsampling block to extract the ft map')
-    parser.add_argument('--ensemble_size', default=4,  type=int, help='ensemble size for getting an image ft map')
+    # parser.add_argument('--up_ft_index', default=7,  type=int, help='which upsampling block to extract the ft map')
+    parser.add_argument('--up_ft_index', default=2,  type=int, help='which upsampling block to extract the ft map')
+    
+    # parser.add_argument('--ensemble_size', default=,  type=int, help='ensemble size for getting an image ft map')
+    parser.add_argument('--ensemble_size', default=2,   type=int, help='ensemble size for getting an image ft map')
+    
     parser.add_argument('--temperature', default=0.1, type=float, help='temperature for softmax')        
     parser.add_argument("--n_last_frames", type=int, default=7, help="number of preceeding frames")
     parser.add_argument("--size_mask_neighborhood", default=12, type=int,  help="We restrict the set of source nodes considered to a spatial neighborhood of the query node")
-    parser.add_argument('--t', default=51, type=int, help='t for diffusion')    
+    # parser.add_argument('--t', default=21, type=int, help='t for diffusion')    
+    parser.add_argument('--t', default=301, type=int, help='t for diffusion')    
+    
     parser.add_argument("--topk", type=int, default=5, help="accumulate label from top k neighbors")
 
 
