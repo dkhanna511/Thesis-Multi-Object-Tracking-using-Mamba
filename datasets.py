@@ -109,8 +109,9 @@ class MambaMOTDataset(Dataset):
 
 
 class MOTDatasetBB(Dataset):
-    def __init__(self, path, window_size=10, augment = False, augment_ratio = 0.1, image_dims=(1920, 1080)):
+    def __init__(self, path, window_size, max_window, augment = False, augment_ratio = 0.1, image_dims=(1920, 1080)):
         self.window_size = window_size
+        self.max_window = max_window
         # self.image_width, self.image_height = image_dims
         self.path = path
         self.augment = augment
@@ -151,10 +152,10 @@ class MOTDatasetBB(Dataset):
             bboxes[:, 1] += shift_y  # Adjust center_y
             flag = True
 
-        # 3. Noise Injection (Gaussian noise)
+        # 3. Noise Injection (Gaussian noise
         if random.random() > augment_prob and not flag:
             # print("adding normal noise")
-            noise = np.random.normal(0, 0.01, size=bboxes.shape)
+            noise = np.random.normal(0, 0.05, size=bboxes.shape)
             bboxes += noise  # Add noise to all elements
             # flag = True
         # 4. Ensure values remain within valid range (0 to 1)
@@ -210,14 +211,16 @@ class MOTDatasetBB(Dataset):
                 bboxes[:, 2] /= image_width  # Normalize width
                 bboxes[:, 3] /= image_height  # Normalize height
                 
-                if self.window_size == "variable":
+                if self.window_size == "variable" and self.augment:
                     if "dancetrack" in path.split("/") :
-                        context_window  = random.randint(2, 5)
+                        context_window  = random.randint(2, self.max_window)
                     else:
-                        context_window  = random.randint(2, 10)
-                else:
-                    context_window = int(self.window_size)
-                # print(" just checking how many times does it actually run, ", context_widow)
+                        context_window  = random.randint(2, self.max_window)
+                # else:
+                #     context_window = int(self.window_size)
+                else: 
+                    context_window = self.max_window
+                print(" just checking how many times does it actually run, ", context_window)
                 # Skip sequences that are too short
                 
                 if len(bboxes) <= context_window:
