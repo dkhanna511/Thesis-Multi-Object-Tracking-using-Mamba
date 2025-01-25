@@ -56,7 +56,7 @@ class FullModelMambaBBoxAttention(nn.Module):
         self.combined_encoding_layer = CombinedEncodingLayer(embedding_dim, num_blocks, num_heads)
         self.prediction_head = nn.Linear(embedding_dim, prediction_dim)
         self.end_activation = nn.Sigmoid()
-        print("Loaded model attention mamba")
+        # print("Loaded model attention mamba")
 
     def forward(self, x):
         x = self.temporal_token_embedding(x)

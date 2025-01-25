@@ -38,7 +38,6 @@ class BiMambaBlock(nn.Module):
         residual = x
         
         # Forward Mamba
-        # x_norm = self.norm1(x)embedding_dim
         x_forward = self.mamba(x)
 
         # Backward Mamba
@@ -85,16 +84,6 @@ class VanillaMambaBlock(nn.Module):
         # x_norm = self.norm1(x)
         mamba_out_forward = self.mamba(x)
 
-        # # Backward Mamba
-        # x_flip = torch.flip(x, dims=[1])  # Flip Sequence
-        # mamba_out_backward = self.mamba(x_flip)
-        # mamba_out_backward = torch.flip(mamba_out_backward, dims=[1])  # Flip back
-        # # print("mamba out backward shape :", mamba_out_backward.shape)
-    
-        # # Combining forward and backward
-        # mamba_out = mamba_out_forward + mamba_out_backward
-        # mamba_layer_norm  = self.norm2(mamba_out)
-        # # print("mamba out 1 shape :", mamba_out1.shape)
     
         mamba_out = self.feed_forward(mamba_out_forward)
 
@@ -243,7 +232,7 @@ class FullModelMambaBBox(nn.Module):
         
         # We only want the last element prediction
         x = self.prediction_head(x[:, -1, :]) 
-        x = self.end_activation(x)   ## Adding this to keep the output between 0 and 1 since we're calculating GiOU loss
+        x = self.end_activation(x)   ## Adding this to keep the output between 0 and 1 since we're calculating GiOU loss/CioU Loss
         
         # print(" x shape after  prediction head layer : ", x.shape)
         
