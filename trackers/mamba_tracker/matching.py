@@ -15,7 +15,7 @@ from shapely.geometry import Polygon, MultiPoint
 from shapely.ops import unary_union
 from matplotlib.patches import Polygon as MplPolygon
 from sklearn.metrics.pairwise import cosine_similarity
-
+import os
 model_keypoint = YOLO("yolo11x-pose.pt")
 
 
@@ -175,11 +175,11 @@ def height_iou_np(atlbrs, btlbrs):
     preds =  np.array(atlbrs)
     dets = np.array(btlbrs)
     # Extract the top and bottom coordinates
-    y_top_preds = preds[:, 0][:, np.newaxis]  # Shape: (N, 1)
-    y_bottom_preds = preds[:, 2][:, np.newaxis]  # Shape: (N, 1)
+    y_top_preds = preds[:, 1][:, np.newaxis]  # Shape: (N, 1)
+    y_bottom_preds = preds[:, 3][:, np.newaxis]  # Shape: (N, 1)
 
-    y_top_dets = dets[:, 0][np.newaxis, :]  # Shape: (1, M)
-    y_bottom_dets = dets[:, 2][np.newaxis, :]  # Shape: (1, M)
+    y_top_dets = dets[:, 1][np.newaxis, :]  # Shape: (1, M)
+    y_bottom_dets = dets[:, 3][np.newaxis, :]  # Shape: (1, M)
 
     # Calculate intersection heights: max(0, min(y_bottom) - max(y_top))
     intersection = np.maximum(0, np.minimum(y_bottom_preds, y_bottom_dets) -
@@ -194,7 +194,6 @@ def height_iou_np(atlbrs, btlbrs):
                       out=np.zeros_like(intersection, dtype=float))
 
     return h_ious
-
 
 
 def extract_patches(image, boxes, box_type='xywh'):
@@ -501,7 +500,7 @@ def expand_boxes(boxes, buffer_size):
     return np.array(modified_boxes)
 
 
-def iou_distance(atracks, btracks, img, association = None, buffer_size = 0.0):
+def iou_distance(atracks, btracks, img, association = None, buffer_size = 0.0, tag = None):
     """
     Compute cost based on IoU
     :type atracks: list[STrack]
@@ -529,6 +528,7 @@ def iou_distance(atracks, btracks, img, association = None, buffer_size = 0.0):
             # print(" atlbrs are : ", atlbrs)
             # print("btlbrs  : ", btlbrs)
         # print(" buffer size is : ", buffer_size)
+        
         atlbrs_buffered = expand_boxes(atlbrs, buffer_size)
         btlbrs_buffered = expand_boxes(btlbrs, buffer_size)
         
@@ -539,17 +539,32 @@ def iou_distance(atracks, btracks, img, association = None, buffer_size = 0.0):
         # print("\n\na tracklet inside IOU Cost matching is :\n\n", a_tracklet)
         # confidence_cost_matrix = calculate_confidence_cost_matrix(a_tracklet, b_score)
         # print(" \ncost matrix confidence is : \n", confidence_cost_matrix)
-
+        def get_color(id):
+            if id == 1:
+                np.random.seed(1)  # Seed to get consistent color for each ID
+            elif id == 2:
+                np.random.seed(2)  # Seed to get consistent color for each ID
+            
+            return tuple(np.random.randint(0, 255, 3).tolist())
+    
         # color = (255, 0, 0)
         # if img is not None:
         #     for box in atlbrs:
-        #         cv2.rectangle(img, (int(box[0]), int(box[1])),  (int(box[2]), int(box[3])), color, 2)
-        #     color = (0, 0, 0)
+        #         cv2.rectangle(img, (int(box[0]), int(box[1])),  (int(box[2]), int(box[3])), get_color(1), 2)
+        #     # color = (0, 0, 0)
         #     for box in btlbrs:
-        #         cv2.rectangle(img, (int(box[0]), int(box[1])),  (int(box[2]), int(box[3])), color, 2)
+        #         cv2.rectangle(img, (int(box[0]), int(box[1])),  (int(box[2]), int(box[3])), get_color(2), 2)
         
-        #     cv2.imshow('frame', img )
-        #     cv2.waitKey(2)
+            # cv2.imshow('frame', img )
+            # cv2.waitKey(1)
+            # if tag is not None:
+            #     video_sequence = tag.split(":")[0]
+            #     frame_number = tag.split(":")[1]
+            #     video_folder = os.path.join(os.getcwd(), "qualitative_analysis", video_sequence)
+            #     if not os.path.exists(video_folder):
+            #         os.makedirs(video_folder)
+
+            #     cv2.imwrite(os.path.join(video_folder, frame_number + ".jpg"), img)
            
             # cv2.destroyAllWindows()
        # pred_polygons, det_polygons  = get_keypoints(atlbrs, btlbrs, img)
@@ -568,7 +583,9 @@ def iou_distance(atracks, btracks, img, association = None, buffer_size = 0.0):
     _ious =  ious(atlbrs_buffered, btlbrs_buffered)
     
     h_ious = height_iou_np(atlbrs, btlbrs)
-    cost_matrix = 1 - _ious
+    modulated_ious =   h_ious * _ious
+    cost_matrix = 1 - modulated_ious
+    # cost_matrix = 1  - _ious
     # print(" \n\niou cost matrix is : \n", cost_matrix)
     # return cost_matrix, [], []
 
@@ -606,7 +623,7 @@ def iou_distance(atracks, btracks, img, association = None, buffer_size = 0.0):
             # similar_bbboxes = cost_matrix[:, col] <0.2
             # count = sum(1 for x in cost_matrix[:, col] if x < 0.2)
             # [counts.append(index) for index, x in enumerate(cost_matrix[:, col]) if x < 0.2]  
-            match_indices = [row for row, value in enumerate(cost_matrix[:, col]) if value < 0.15]
+            match_indices = [row for row, value in enumerate(cost_matrix[:, col]) if value < 0.1]
             if len(match_indices) > 1:
                 # print(" match indices are : ", match_indices)
                 # print("cost matrix before : \n", cost_matrix)
