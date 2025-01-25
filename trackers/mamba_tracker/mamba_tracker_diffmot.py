@@ -8,9 +8,12 @@ import torch.nn.functional as F
 import gc
 from .kalman_filter import KalmanFilter
 from .mamba_predictor import MambaPredictor
-from trackers.mamba_tracker import matching, matching_hybrid
+from trackers.mamba_tracker import matching
 from .basetrack import BaseTrack, TrackState       ######## THIS IS REALLY IMPORTANT, THIS KEEPS TRACK OF ALL THE TRACKLETS
 from .gmc import GMC
+# from .src.models.dift_sd import SDFeaturizer
+# from .src.models.dift_utils import read_frame, extract_feature, label_propagation
+import queue
 
 from .cmc import CMCComputer
 from .gmc import GMC
@@ -18,18 +21,36 @@ from .gmc import GMC
 from .embedding import EmbeddingComputer
 # import associations
 
+# global model_path_global
+global args_global
+args_global = None
+# model_path_global = None
+# global dataset_name_global
+# dataset_name_global = None
+
 torch.set_num_threads(16)  # Reduce the number of threads
 from .cmc import CMCComputer
 class STrack(BaseTrack):
 
-    mamba_predictor = MambaPredictor(model_type = "bi-mamba", dataset_name = "MOT20", model_path = None)
+    # mamba_predictor = MambaPredictor(model_type = "attention-mamba", dataset_name = "MOT20", model_path = model_path_global)
+    # mamba_predictor = MambaPredictor(args_new = args_global)
+    mamb_predictor = None
     # mamba_predictor = 
-    def __init__(self, tlwh, score, padding_window, feat=None, temp_feat = None,  feat_history = 30):
-
+    @classmethod
+    def set_mamba_predictor(cls, args_new):
+        """
+        Initialize the MambaPredictor at the class level.
+        """
+        cls.mamba_predictor = MambaPredictor(args_new)
+        
+    def __init__(self, tlwh, score, padding_window, feat=None, temp_feat = None, diffusion_feat = None,  feat_history = 30):
+        # mamba_predictor  = mamba_predictor(args_global)
         # wait activate
+        assert STrack.mamba_predictor is not None, "MambaPredictor is not initialized. Call `STrack.set_mamba_predictor()` first."
+
         self._tlwh = np.asarray(tlwh, dtype=np.float64)
         # BaseTrack.reset_id()
-        # self.mamba_predictor = MambaPredictor(model_type = "bi-mamba", dataset_name = "MOT20", model_path= model_path)
+        # self.mamba_predictor = MambaPredictor(model_type = "attention-mamba", dataset_name = "MOT20", model_path= None)
         self.is_activated = False
         self.is_virtual = False
 
@@ -52,6 +73,9 @@ class STrack(BaseTrack):
         ## DifFMOT/Deep-OC-SORT Parameters
         self.emb = temp_feat
 
+
+        #### Diffusion Features
+        self.diffusion_embs = diffusion_feat
           # wait activate
         self.xywh_omemory = deque([], maxlen=feat_history)
         self.xywh_pmemory = deque([], maxlen=feat_history)
@@ -210,6 +234,8 @@ class STrack(BaseTrack):
             # print("tracklet before prediction after padding : \n", tracklets)
             # print(" image size passed into the predictor is :", img_size)
             multi_prediction = STrack.mamba_predictor.multi_predict(tracklets, img_size)
+            # multi_prediction = self.mamba_predictor.multi_predict(tracklets, img_size)
+            
             # print(" \npredicted tracklet is  : \n", multi_prediction)
             for i, multi_pred in enumerate(multi_prediction):
                 stracks[i].prediction = multi_pred
@@ -340,7 +366,6 @@ class STrack(BaseTrack):
      
 
 
-
     @property
     # @jit(nopython=True)
     def tlwh(self):
@@ -430,7 +455,12 @@ class MambaTrackerDiffMOT(object):
         self.buffer_size = int(frame_rate / 30.0 * args.track_buffer)
         self.max_time_lost = self.buffer_size
         self.model_path = args.model_path
-        self.mamba_prediction_cl = MambaPredictor(model_type = self.model_type, dataset_name  = self.dataset_name, model_path = self.model_path)
+        # self.mamba_prediction_cl = MambaPredictor(model_type = self.model_type, dataset_name  = self.dataset_name, model_path = self.model_path)
+        # global args_global
+        # self.args = args_global
+        # args_global = self.args
+        STrack.set_mamba_predictor(args_new = self.args)
+        self.mamba_prediction_cl = MambaPredictor(args_new = self.args)
         self.cmc = CMCComputer()
         ################################3 BOT SORT ###########################
         self.track_high_thresh = args.track_high_thresh
@@ -449,6 +479,10 @@ class MambaTrackerDiffMOT(object):
 
         # if args.with_reid:
         self.embedder = EmbeddingComputer(args.dataset_name, test_dataset = self.args.test, grid_off = True)
+        # self.SD_feature_model = SDFeaturizer()
+        # self.que = queue.Queue(args.n_last_frames)
+
+        self.frame1_feat = 0
         self.alpha_fixed_emb = 0.95
             # self.encoder = FastReIDInterface(args.fast_reid_config, args.fast_reid_weights, args.device)
 
@@ -457,14 +491,22 @@ class MambaTrackerDiffMOT(object):
 
     def terminate_virtual_tracks(self):
         current_virtual_tracks = [t for t in self.virtual_stracks if t.state == TrackState.Virtual]
+        # print(" am I coming here at all? ")
+        # exit(0)
         for track in current_virtual_tracks:
-            if self.frame_id - track.last_seen > self.virtual_track_buffer:
+            if track.virtual_frames > self.virtual_track_buffer:
+                print(" coming here?")
                 self.virtual_stracks.remove(track)
                 self.removed_stracks.append(track)
-        
+    
+    
+
     def update(self, output_results, img_info, img_size, img, tag):
         self.frame_id += 1
-       
+        # global model_path_global
+        # model_path_global = self.args.model_path
+        # global dataset_name_global
+        # dataset_name_global = self.args.dataset_name
         activated_stracks = [] ## Already existing tracklets are stored in this
         refind_stracks = []  ## Tracklets that are lost and then found again are stored in this
         lost_stracks = []    ## Lost tracklets are stored in this
@@ -476,10 +518,14 @@ class MambaTrackerDiffMOT(object):
         scale_old = min(img_size[0] / float(img_h), img_size[1] / float(img_w)) ### This is the bytetrack one
 
         if img_info[2].item() == 1:
-            print("frame ID getting accessed is :", self.frame_id)
+            # print("frame ID getting accessed is :", self.frame_id)
+            print(" Using The Diffmot association")
+            # print(" padding window used is :", self.args.max_window)
             # print(" activated stracks : ", activated_stracks)
             # print("refind tracks : ", refind_stracks)
             # print("los tracks : ", lost_stracks)
+
+        # print("here>>>>>>")
         if len(output_results):
             if output_results.shape[1] == 5:
                 scores = output_results[:, 4]
@@ -512,11 +558,33 @@ class MambaTrackerDiffMOT(object):
      
             ############### THIS IS FROM BOTSORT DEFAULT CODE ########################
             # features_keep = self.encoder.inference(img, dets)
+       
+        # if self.frame_id ==1:
+        # frame1, ori_h, ori_w = read_frame(img) ### Basically extracts pixels from the frame to pass it to the model to get features from it. 
+        # frame1=None
+        # # self.diff_dets_embds = 0
+        # self.diff_dets_embds = extract_feature(self.args, self.SD_feature_model, frame1, dets, img) #  dim x h*w
+        # # print(" self. diffusion detection embeddings are : ", self.diff_dets_embds.shape)
+        # # frame_target = read_frame(img)[0]
+        # used_frame_feats = [self.frame1_feat] + [pair[0] for pair in list(self.que.queue)]
+        # print(" used frame featuresz length : ", len(used_frame_feats))
+        # print("here?????")
+        # frame_tar_avg, feat_tar, mask_neighborhood = label_propagation(self.args, self.SD_feature_model, frame_tar, used_frame_feats, list_segs = None, mask_neighborhood = None)
+        
+        # #  pop out oldest frame if neccessary
+        # if self.que.qsize() == self.args.n_last_frames:
+        #     self.que.get()
+        # self.que.put([feat_tar])
+
+
+    
+        ################## THIS ONE IS FROM DEEP OC SORT code ####################################
+
         dets_embs = np.ones((dets.shape[0], 1))
 
-        ##################3 THIS ONE IS FROM DEEP OC SORT code ####################################
         if dets.shape[0] != 0:
             dets_embs = self.embedder.compute_embedding(img, dets, tag)
+            # print(" dets_embs shape is : ", dets_embs.shape)
         # print("dets are : ", dets.shape)
         trust = (scores_keep - self.det_thresh) / (1 - self.det_thresh)
         af = self.alpha_fixed_emb
@@ -549,6 +617,7 @@ class MambaTrackerDiffMOT(object):
                 
             elif track.is_virtual:
                 virtual_stracks.append(track)
+                print(" track that is virtual is : ", track)
             else:
                 unconfirmed.append(track)
                 
@@ -569,16 +638,18 @@ class MambaTrackerDiffMOT(object):
 
         trk_embs = [st.emb for st in strack_pool]
         trk_embs = np.array(trk_embs)
+
+        # diffusion_track_embs = [st.diffusion_embs for st in strack_pool]
+        # diffusion_track_embs = np.array(diffusion_track_embs)
         # print(" track embeddings ashape is : ", trk_embs)
+
         emb_cost = None if (trk_embs.shape[0] == 0 or dets_embs.shape[0] == 0) else trk_embs @ dets_embs.T
 
-        
-        #  Fix camera motion
-        # warp = self.gmc.apply(img, dets)
-        # STrack.multi_gmc(strack_pool, warp)
-        # STrack.multi_gmc(unconfirmed, warp)      
+        ### Diffusion Feature Based Embedding Cost
+        # diffusion_emb_cost = None if (diffusion_track_embs.shape[0] == 0 or self.diff_dets_embds.shape[0] == 0) else diffusion_track_embs @ self.diff_dets_embds.T
 
-        ious_dists,  keypoint_dists, potential_multiple_matches = matching.iou_distance(strack_pool, detections, img, association = "first_association", buffer_size = 0.3)
+     
+        ious_dists,  keypoint_dists, potential_multiple_matches = matching.iou_distance(strack_pool, detections, img, association = "first_association", buffer_size = self.args.b1, tag = tag)
         # confidence_dists = matching.calculate_confidence_cost_matrix(strack_pool, detections)
         # print("confidence distances are : \n",confidence_dists)
         # print("confidence dist is : ", confidence_dists)
@@ -601,9 +672,7 @@ class MambaTrackerDiffMOT(object):
                 matched_indices = matching.linear_assignment2(final_cost)
         else:
             matched_indices = np.empty(shape=(0, 2))
-
-
-        
+ 
         unmatched_detections = []
         for d, det in enumerate(detections):
             if d not in matched_indices[:, 1]:
@@ -690,10 +759,10 @@ class MambaTrackerDiffMOT(object):
         
         ''' 2nd LEVEL OF ASSOCIATIONS !!!!!!!!!!!!'''
         r_tracked_stracks = [strack_pool[i] for i in u_track if strack_pool[i].state == TrackState.Tracked]
-        dists, keypoint_dists, _ = matching.iou_distance(r_tracked_stracks, detections_second, img, association = "second_associations", buffer_size = 0.4)
+        dists, keypoint_dists, _ = matching.iou_distance(r_tracked_stracks, detections_second, img, association = "second_associations", buffer_size = self.args.b2, tag = tag)
         matches, u_track, u_detection_second = matching.linear_assignment(dists, thresh=0.5)
-        if len(u_track) > 0:
-            print("unmatched tracks after 2nd association : ", [r_tracked_stracks[idx] for idx in u_track])
+        # if len(u_track) > 0:
+        #     print("unmatched tracks after 2nd association : ", [r_tracked_stracks[idx] for idx in u_track])
 
         
         # filtered_virtual_detections = [entry for entry in predictions_for_virtual_detections if entry[0] not in matches]
@@ -731,11 +800,11 @@ class MambaTrackerDiffMOT(object):
         if len(filtered_u_track) > 0:
             print("filtered untracked files after 2nd association is : ", [r_tracked_stracks[idx] for idx in u_track])
         
-        if len(matches) > 0:
-            print("matched tracks in 2nd association : \n")
+        # if len(matches) > 0:
+        #     print("matched tracks in 2nd association : \n")
         for itracked, idet in matches:
             track = r_tracked_stracks[itracked]
-            print(track)
+            # print(track)
             det = detections_second[idet]
 
         
@@ -774,10 +843,10 @@ class MambaTrackerDiffMOT(object):
             
             
             virtual_tracks_for_matching = [track for track in virtual_detections_tracks if ((track.state == TrackState.Virtual) or (track.state == TrackState.Tracked))]
-            dists, _, _ = matching.iou_distance(virtual_tracks_for_matching, virtual_detections, img, association = "half_first_association")
+            dists, _, _ = matching.iou_distance(virtual_tracks_for_matching, virtual_detections, img, association = "half_first_association", tag = tag)
             
             
-            matches_virtual, u_unconfirmed_virtual, u_detection_virtual = matching.linear_assignment(dists, thresh=0.7)
+            matches_virtual, u_unconfirmed_virtual, u_detection_virtual = matching.linear_assignment(dists, thresh=0.5)
             print(" matched virtual detections are : ", matches_virtual)
             # ''' Virtual Level Associations '''
             for itracked, idet in matches_virtual:
@@ -802,7 +871,7 @@ class MambaTrackerDiffMOT(object):
                     score = 0.75 * virtual_detections[idet].score
                     
                 print("{} virtual frames are : {}".format(track,  track.virtual_frames))
-                # print()
+                
 
                
                 track.add_detection(virtual_detections[idet].tlwh, score)
@@ -848,7 +917,7 @@ class MambaTrackerDiffMOT(object):
 
         detections = [detections[i] for i in u_detection]
         # dists, keypoint_dists,  _ = matching.iou_distance(unconfirmed, detections, img)
-        dists, keypoint_dists,  _ = matching.iou_distance(unconfirmed, detections, img)
+        dists, keypoint_dists,  _ = matching.iou_distance(unconfirmed, detections, img, tag = tag)
         ious_dists_mask = (ious_dists > self.proximity_thresh)
         # if not self.args.mot20:
         #     ious_dists = matching.fuse_score(ious_dists, detections)
@@ -904,20 +973,20 @@ class MambaTrackerDiffMOT(object):
                 track.mark_removed()
                 removed_stracks.append(track)
         
-        for track in self.virtual_stracks:
-            if self.frame_id - track.end_frame > self.virtual_track_buffer:
-                track.mark_removed()
-                removed_stracks.append(track)
-     
 
+        self.terminate_virtual_tracks()
+       
         """ Merge """
         self.tracked_stracks = [t for t in self.tracked_stracks if t.state == TrackState.Tracked]
         self.tracked_stracks = joint_stracks(self.tracked_stracks, activated_stracks)
         self.tracked_stracks = joint_stracks(self.tracked_stracks, refind_stracks)
-        # self.virtual_stracks = joint_stracks(self.tracked_stracks, virtual_stracks)
+
         self.lost_stracks = sub_stracks(self.lost_stracks, self.tracked_stracks)
         self.lost_stracks.extend(lost_stracks)
         self.lost_stracks = sub_stracks(self.lost_stracks, self.removed_stracks)
+        
+        
+        # self.virtual_stracks = [t for t in self.virtual_stracks if t.state == TrackState.Virtual]
         
         self.virtual_stracks = sub_stracks(self.virtual_stracks, self.tracked_stracks)
         self.virtual_stracks.extend(virtual_stracks)
@@ -926,7 +995,7 @@ class MambaTrackerDiffMOT(object):
         self.removed_stracks.extend(removed_stracks)
         self.tracked_stracks, self.lost_stracks = remove_duplicate_stracks(self.tracked_stracks, self.lost_stracks)
 
-        self.tracked_stracks = joint_stracks(self.tracked_stracks, virtual_stracks)
+        # self.tracked_stracks = joint_stracks(self.tracked_stracks, virtual_stracks)
         
         # self.terminate_virtual_tracks()
 
@@ -962,7 +1031,7 @@ def sub_stracks(tlista, tlistb):
 
 def remove_duplicate_stracks(stracksa, stracksb):
     # print(" MATCHING FOR REMOVING DUPLICATE TRACKS")
-    pdist , keypoint_dist,  _= matching.iou_distance(stracksa, stracksb, None)
+    pdist , keypoint_dist,  _= matching.iou_distance(stracksa, stracksb, None, tag  = None)
     pairs = np.where(pdist < 0.15)
     dupa, dupb = list(), list()
     for p, q in zip(*pairs):

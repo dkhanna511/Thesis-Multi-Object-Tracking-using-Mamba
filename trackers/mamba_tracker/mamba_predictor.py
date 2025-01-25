@@ -3,6 +3,7 @@ import numpy as np
 import scipy.linalg
 import torch
 from models_mamba import FullModelMambaBBox, BBoxLSTMModel
+import gc
 from mambaAttention import FullModelMambaBBoxAttention
 """
 Table for the 0.95 quantile of the chi-square distribution with N degrees of
@@ -274,33 +275,39 @@ class KalmanFilter(object):
         
 
 class MambaPredictor(object):
-    def __init__(self, model_type, dataset_name, model_path):
+    # def __init__(self, model_type, dataset_name, model_path):
+    def __init__(self, args_new):
+    
         self.input_size = 4
-        # Model parameters
-        self.model_type = model_type
-        self.dataset_name = dataset_name
         self.input_size = 4  # Bounding box has 4 coordinates: [x, y, width, height]
         self.hidden_size = 64 ## This one is used for LSTM NEtwork which I tried
         self.output_size = 4  # Output also has 4 coordinates
-        self.num_layers = 4## For LSTM
+        self.num_layers = 4       ## For LSTM
         self.embedding_dim = 128 ## For Mamba
-        self.num_blocks = 3 ## For Mamba
         self.num_heads = 4
         self.device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
-        
         self.model_type = "attention-mamba"
-        print("\ndataset name is : ", self.dataset_name)
-        print("\nmodel type is :",self.model_type)
-        # exit(0)
         
-        if self.model_type == "bi-mamba" or model_type == "vanilla-mamba":
-            self.model = FullModelMambaBBox(self.input_size, self.embedding_dim, self.num_blocks, self.output_size, mamba_type =  model_type).to(self.device)
+        self.model_path = None
+        self.model = None
+        self.best_model_name = None
+        self.num_blocks = None
+        # print(" Are we reaching here before going into update? ")
+        # Dynamic Model parameters
+        if args_new is not None:
+            self.model_path = args_new.model_path
+            self.num_blocks = args_new.num_blocks ## For Mamba
+            
+            
+        
+            if self.model_type == "bi-mamba" or self.model_type == "vanilla-mamba":
+                self.model = FullModelMambaBBox(self.input_size, self.embedding_dim, self.num_blocks, self.output_size, mamba_type =  self.model_type).to(self.device)
             # exit(0)
-        if self.model_type == "attention-mamba":
-            self.model = FullModelMambaBBoxAttention(self.input_size, self.embedding_dim, self.num_blocks, self.output_size, num_heads= self.num_heads , mamba_type =  model_type).to(self.device)
+            if self.model_type == "attention-mamba":
+                self.model = FullModelMambaBBoxAttention(self.input_size, self.embedding_dim, self.num_blocks, self.output_size, num_heads= self.num_heads , mamba_type =  self.model_type).to(self.device)
         
-        else:
-            self.model = BBoxLSTMModel(self.input_size, self.hidden_size, self.output_size, self.num_layers).to(self.device)
+            else:
+                self.model = BBoxLSTMModel(self.input_size, self.hidden_size, self.output_size, self.num_layers).to(self.device)
 
 
         # self.best_model_name  = "best_model_bbox_{}_variable_{}.pth".format(self.dataset_name, self.model_type)
@@ -309,14 +316,27 @@ class MambaPredictor(object):
         # self.best_model_name = "running_models/best_model_bbox_dancetrack_variable_bi-mamba_14_October.pth"
         # self.best_model_name = "running_models/best_model_bbox_sportsmot_publish_variable_vanilla-mamba_20_October.pth"
         # self.best_model_name = "running_models/best_model_bbox_dancetrack_variable_attention-mamba_29_October.pth"
-        self.best_model_name = "best_models/best_model_bbox_dancetrack_variable_attention-mamba_30_October.pth"                #### This one is the best predictor for now
+        # self.best_model_name = "best_models/best_model_bbox_dancetrack_variable_attention-mamba_30_October.pth"                #### This one is the best predictor for now
         # self.best_model_name = "best_model_bbox_sportsmot_publish_variable_attention-mamba_01_November.pth"
         # self.best_model_name = "best_model_bbox_dancetrack_variable_attention-mamba_02_November.pth"                        ##### This one is the best predictor for noww
         # self.best_model_name = model_path
+        # self.best_model_name = self.model_path
         
-        print("\nmodel to be loaded is : ", self.best_model_name)
-        # if self.best_model_name is not None:
-        self.model.load_state_dict(torch.load(self.best_model_name))  # Load the best model
+        ## Ablation Study stuff: 
+        # self.best_model_name = "best_model_bbox_dancetrack_variable_attention-mamba_max_window_5_num_blocks_2_16_December.pth"
+        # self.best_model_name = "best_model_bbox_dancetrack_variable_attention-mamba_max_window_5_num_blocks_3_16_December.pth"
+        # self.best_model_name = "best_model_bbox_dancetrack_variable_attention-mamba_max_window_7_num_blocks_3_17_December.pth"
+        # self.best_model_name = "best_model_bbox_dancetrack_variable_attention-mamba_max_window_7_num_blocks_4_17_December.pth"
+        # self.best_model_name  = "best_model_bbox_dancetrack_variable_attention-mamba_false_augment_max_window_12_15_December.pth"
+        
+        # self.best_model_name = "/home/viplab/Research_DK/Mamba-MOT/best_model_bbox_dancetrack_variable_attention-mamba_22_November.pth"   ### This is for DRONE ( Sorry for the wrong name)
+        # print("\nmodel to be loaded is : ", self.best_model_name)
+        if args_new is not None:
+            self.best_model_name = args_new.model_path
+            # print(" model getting used is : ", self.best_model_name)
+            # print("dataset getting used is  : ", args_new.dataset_name)
+            # print("number of blocks : ", args_new.num_blocks)
+            self.model.load_state_dict(torch.load(self.best_model_name))  # Load the best model
 
 
     def initiate(self, measurement):
@@ -379,8 +399,6 @@ class MambaPredictor(object):
         return bboxes
     
     
-    
-    
     def multi_predict(self, tracklet_detections, img_size):
         
         # print("model name is : ", self.best_model_name)
@@ -417,6 +435,11 @@ class MambaPredictor(object):
             
             # exit(0)
             # print(" predicted bounding shape box is :", predicted_bbox.shape)
+        
+        
+        # gc.collect()
+        # torch.cuda.empty_cache()
+        
         return predicted_bbox
         
         

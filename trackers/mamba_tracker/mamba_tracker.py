@@ -11,11 +11,16 @@ from .mamba_predictor import MambaPredictor
 from trackers.mamba_tracker import matching
 from .basetrack import BaseTrack, TrackState       ######## THIS IS REALLY IMPORTANT, THIS KEEPS TRACK OF ALL THE TRACKLETS
 
-from fast_reid.fast_reid_interfece import FastReIDInterface
+# from fast_reid.fast_reid_interfece import FastReIDInterface
+global args_global
+args_global = None
+
 
 class STrack(BaseTrack):
 
-    mamba_predictor = MambaPredictor(model_type = "bi-mamba", dataset_name = "MOT20", model_path = None)
+    # mamba_predictor = MambaPredictor(model_type = "bi-mamba", dataset_name = "MOT20", model_path = None)
+    mamba_predictor = MambaPredictor(args = args_global)
+
     # mamba_predictor = 
     def __init__(self, tlwh, score, padding_window):
 
@@ -294,8 +299,10 @@ class MambaTracker(object):
         self.max_time_lost = self.buffer_size
         self.kalman_filter = KalmanFilter()
         self.model_path = args.model_path
-        self.mamba_prediction_cl = MambaPredictor(model_type = self.model_type, dataset_name  = self.dataset_name, model_path = self.model_path)
-        self.encoder = FastReIDInterface(args.fast_reid_config, args.fast_reid_weights, args.device)
+        # self.mamba_prediction_cl = MambaPredictor(model_type = self.model_type, dataset_name  = self.dataset_name, model_path = self.model_path)
+        self.mamba_prediction_cl = MambaPredictor(args = self.args)
+        
+        # self.encoder = FastReIDInterface(args.fast_reid_config, args.fast_reid_weights, args.device)
         # self.STrack =- 
         BaseTrack.reset_id()
 
@@ -321,7 +328,9 @@ class MambaTracker(object):
         
     def update(self, output_results, img_info, img_size, image):
         self.frame_id += 1
-       
+        global args_global
+        args_global = self.args
+        
         activated_stracks = []
         refind_stracks = []
         lost_stracks = []
@@ -402,24 +411,20 @@ class MambaTracker(object):
         strack_pool = joint_stracks(tracked_stracks, self.lost_stracks)
         # Predict the current location with KF
         
-        ########### WILL HAVE THE MAKE THE CHANGES HERE ############ REPLACE THE MULTI PREDICT FUNCTIONS WITH MY THINGS
+
         STrack.predict_mamba(strack_pool, img_info)
         
-        # STrack.multi_predict(strack_pool)
-        # print( " MATCHING  FOR FIRST ASSOCIATIONS")
-        # print("shape of detections", len(detections))
-        # print("predictions are : ", strack_pool)
-        dists = matching.iou_distance(strack_pool, detections, image)
+        dists, multiple_matched_detections, _ = matching.iou_distance(strack_pool, detections, image, "first_association")
         # print(" shape of cost matrix is : ", dists.shape)
         # print("dists is :", dists)
-        if not self.args.mot20:
-            dists = matching.fuse_score(dists, detections)
-            min_cost_thresh =  0.08
-            for i in range(dists.shape[0]):
-                # min_cost = np.where(dists[i] - min_cost_thr)
-                # Check if the tracklet has multiple similar IoU costs with detections
-                min_cost = np.min(dists[i])
-                similar_costs = np.where((dists[i] - min_cost) <= min_cost_thresh)[0]
+        # if not self.args.mot20:
+        #     dists = matching.fuse_score(dists, detections)
+        #     min_cost_thresh =  0.08
+        #     for i in range(dists.shape[0]):
+        #         # min_cost = np.where(dists[i] - min_cost_thr)
+        #         # Check if the tracklet has multiple similar IoU costs with detections
+        #         min_cost = np.min(dists[i])
+        #         similar_costs = np.where((dists[i] - min_cost) <= min_cost_thresh)[0]
                 # if similar_costs > 1:
                 #     # dists  = matching.re_evaluate_score(dists, detections)
                 #     features_keep = self.encoder.inference(img, dets)
@@ -429,9 +434,9 @@ class MambaTracker(object):
 
         
         matches, u_track, u_detection = matching.linear_assignment(dists, thresh=self.args.match_thresh)
-        
+        # u_detection.extend(multiple_matched_detections)
+        # u_detection = u_detection + multiple_matched_detections
         # print(" FRAME NUMBER IS : ", self.frame_id)
-        # print(" matches : {}, unmatched tracked : {}, unmatched detections : {}".format(matches, u_track, u_detection))
         for itracked, idet in matches:
             track = strack_pool[itracked]
             det = detections[idet]
@@ -450,10 +455,23 @@ class MambaTracker(object):
             else:
                 track.re_activate_mamba(det, self.frame_id, new_id=False)
                 refind_stracks.append(track)
-
+        
         ''' Step 3: Second association, with low score detection boxes'''
         # association the untrack to the low score detections
-        # print("SECOND ASSOCIATION WITH LOW CONFIDENCE SCORES")
+        # print("SECOND ASSOCIATION WITH MEDIUM CONFIDENCE SCORES")
+        if multiple_matched_detections is not None:
+            multiple_matched_detections_tlbr  = [detections.tlbr.tolist() for detections in  multiple_matched_detections]
+            multiple_matched_detections_score = [detections.score.tolist() for detections in  multiple_matched_detections]
+        # print(" dets second is ", dets_second )
+        # dets_second = np.append(dets_second, np.array(multiple_matched_detections_tlbr))
+            if len(multiple_matched_detections_tlbr) > 0:
+                print("\nmutiple matches detection is : \n", multiple_matched_detections_tlbr)
+                print("\nunmatched trracklets are : \n", u_track)
+                print("unmatched detections include : \n", u_detection)
+                scores_second = np.concatenate((scores_second, multiple_matched_detections_score))
+                dets_second  = np.concatenate((dets_second, multiple_matched_detections_tlbr))
+                print("\ndets second is : \n", dets_second)
+    
         if len(dets_second) > 0:
             '''Detections'''
             detections_second = [STrack(STrack.tlbr_to_tlwh(tlbr), s, self.padding_window) for
@@ -462,14 +480,17 @@ class MambaTracker(object):
         else:
             detections_second = []
         
+
+        # detections_second = detections_second + multiple_matched_detections
+
         # print("MATCHING FOR SECOND ASSOCIATIONS")
+      
+
         r_tracked_stracks = [strack_pool[i] for i in u_track if strack_pool[i].state == TrackState.Tracked]
-        dists = matching.iou_distance(r_tracked_stracks, detections_second, image)
+        dists, _, _ = matching.iou_distance(r_tracked_stracks, detections_second, image, "second_association")
         matches, u_track, u_detection_second = matching.linear_assignment(dists, thresh=0.5)
         
         # print("SECOND TIME ASSOCIATIONS")
-        # print(" matches : {}, unmatched tracked : {}, unmatched detections : {}".format(matches, u_track, u_detection))
-
         
         for itracked, idet in matches:
             track = r_tracked_stracks[itracked]
@@ -496,7 +517,7 @@ class MambaTracker(object):
         '''Deal with unconfirmed tracks, usually tracks with only one beginning frame'''
         # print(" \nun confirmed tracks :", unconfirmed)
         detections = [detections[i] for i in u_detection]
-        dists = matching.iou_distance(unconfirmed, detections, image)
+        dists, _, _ = matching.iou_distance(unconfirmed, detections, image)
         if not self.args.mot20:
             dists = matching.fuse_score(dists, detections)
         # print("\ndistance is :", dists)
@@ -588,7 +609,7 @@ def sub_stracks(tlista, tlistb):
 
 def remove_duplicate_stracks(stracksa, stracksb, image):
     # print(" MATCHING FOR REMOVING DUPLICATE TRACKS")
-    pdist = matching.iou_distance(stracksa, stracksb, image)
+    pdist, _, _ = matching.iou_distance(stracksa, stracksb, image)
     pairs = np.where(pdist < 0.15)
     dupa, dupb = list(), list()
     for p, q in zip(*pairs):
