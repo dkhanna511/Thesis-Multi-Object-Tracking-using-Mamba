@@ -10,18 +10,23 @@ import torchvision
 from torch.nn import functional as F
 import time
 from sklearn.decomposition import PCA
-
+import matplotlib.pyplot as plt
 
 import pickle
 
 class DiffusionEmbeddingComputer:
-    def __init__(self, dataset, test_dataset, grid_off, max_batch=4):
+    def __init__(self, args,   test_dataset, grid_off, max_batch=4):
         self.model = None
-        self.dataset = dataset
+        self.dataset = args.dataset
         self.test_dataset = test_dataset
         self.crop_size = (128, 384)
-        os.makedirs("cache/embeddings_diffusion/", exist_ok=True)
-        self.cache_path = "./cache/embeddings_diffusion/{}_embeddings.pkl"
+        self.up_ft_index = args.up_ft_index
+        self.t = args.t
+        dir_name_embeddings = "./cache/diffusion_embeddings_t_{}_up_ft_{}".format(self.t, self.up_ft_index)
+
+        # os.makedirs("cache/embeddings_diffusion_t_21/", exist_ok=True)
+        os.makedirs(dir_name_embeddings, exist_ok=True)
+        self.cache_path = dir_name_embeddings+ "/{}_embeddings.pkl"
         # self.cache_path = os.path.join(config.reid_dir, "{}_embedding.pkl")
         self.cache = {}
         self.cache_name = ""
@@ -119,126 +124,205 @@ class DiffusionEmbeddingComputer:
         return patches
 
 
-    def extract_feature(self, args, model, frame, bbox, img, tag,  return_h_w=False):
-    
+    def extract_bboxes_features(self, features, img, feature_dims, detections):
+        image_h, image_w, _ = img.shape
+        feat_h, feat_w = feature_dims
+        # print(" features shape is : ", features.shape)
+        # print( " image_h. image_w : {}, {}".format(image_h, image_w))
+        # print( " feat_h. feat_w : {}, {}".format(feat_h, feat_w))
+        ##@ Extract features per bounding box
+        features_per_box = []
+
+        scale_h = feat_h/image_h
+        scale_w =feat_w/image_w
+        scale_h = feat_h / image_h
+        scale_w = feat_w / image_w
+        scale = min(scale_h, scale_w)
+        # print(" detections are : ", detections)
+        for box in detections:
+            
+            assert not torch.isnan(features).any(), "NaN found in features"
+            
+            x_min, y_min, x_max, y_max = box
+            # print(" x min , y_min, x_max, y_max are : {}, {}, {}, {}".format(x_min, y_min, x_max, y_max))
+            # Scale bounding box coordinates
+            x_min_fm = int(x_min * scale)
+            y_min_fm = int(y_min * scale)
+            x_max_fm = int(x_max * scale)
+            y_max_fm = int(y_max * scale)
+            # print(" reshaped boundin boxes are : {},  {}, {}, {}".format(x_min_fm, y_min_fm, x_max_fm, y_max_fm))
+
+            # Ensure coordinates are within bounds
+            x_min_fm = max(0, min(x_min_fm, feat_w - 1))
+            y_min_fm = max(0, min(y_min_fm, feat_h - 1))
+            x_max_fm = max(0, min(x_max_fm, feat_w - 1))
+            y_max_fm = max(0, min(y_max_fm, feat_h - 1))
+            # print(" reshaped boundin boxes are : {},  {}, {}, {}".format(x_min_fm, y_min_fm, x_max_fm, y_max_fm))
+            # Extract the feature map slice for the bounding box
+            # print("features shape is : ", features)
+            # print(" x min is : {}, x max is : {}".format(x_min_fm, x_max_fm))
+            
+            width = x_max_fm - x_min_fm + 1
+            height = y_max_fm - y_min_fm + 1
+            # print(f"Computed width: {width}, height: {height}")
+        
+            feature_slice = features[y_min_fm:y_min_fm + height, x_min_fm:x_min_fm+width, :]
+            assert not torch.isnan(feature_slice).any(), "NaN found in feature_slice"
+            # processed_feature_maps = []
+            # mean_feature_map = feature_slice.mean(dim = 2)
+            # processed_feature_maps.append(mean_feature_map.data.cpu().numpy())
+
+            # for i in range(len(processed_feature_maps)):
+            #     print("coming here?")
+            #     # ax = fig.add_subplot(5, 4, i + 1)
+            #     # ax.imshow(processed_feature_maps[i])
+            #     # plt.show()
+            #     plt.imshow(processed_feature_maps[i])
+            #     plt.show()
+        
+            
+            # Pooling (average pooling as an example)
+            # print( " feature slice shape is : ", feature_slice.shape)
+            pooled_feature = feature_slice.mean(axis=(0, 1))  # Average pooling over height and width
+            features_per_box.append(pooled_feature)
+            assert not torch.isnan(pooled_feature).any(), "NaN found in features_per_box"
+
+        # features_per_box = np.array(features_per_box)  # Shape: [num_boxes, 640]
+        features_per_box = torch.stack(features_per_box)
+
+
+        return features_per_box
+
+    def label_propagation(self, args, model, frame_tar, frame_source , detections, img, track_embeds, tag, mask_neighborhood=None):
+        """
+        propagate segs of frames in list_frames to frame_tar
+        """
         if self.cache_name != tag.split(":")[0]:
             self.load_cache(tag.split(":")[0])
 
         if tag in self.cache:
             embs = self.cache[tag]
-            if embs.shape[0] != bbox.shape[0]:
+            if embs.shape[0] != detections.shape[0]:
                 raise RuntimeError(
                     "ERROR: The number of cached embeddings don't match the "
                     "number of detections.\nWas the detector model changed? Delete cache if so."
                 )
             return embs
-         
-        
-        crop_size = (128, 384)    ### HARD Coded, Taking this from the FastReID Model arguments
-        normalize = False         ### HARD Coded, Taking this from the FastReID Model arguments
-        grid_off = True             ### HARD Coded, Taking this from the FastReID Model arguments
-        if grid_off:
-            # Basic embeddings
-            h, w = img.shape[:2]
-            results = np.round(bbox).astype(np.int32)
-            results[:, 0] = results[:, 0].clip(0, w)
-            results[:, 1] = results[:, 1].clip(0, h)
-            results[:, 2] = results[:, 2].clip(0, w)
-            results[:, 3] = results[:, 3].clip(0, h)
 
-            crops = []
-            for p in results:
-                crop = img[p[1] : p[3], p[0] : p[2]]
-                crop = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
-                crop = cv2.resize(crop, crop_size, interpolation=cv2.INTER_LINEAR).astype(np.float32)
-                if normalize:
-                    crop /= 255
-                    crop -= np.array((0.485, 0.456, 0.406))
-                    crop /= np.array((0.229, 0.224, 0.225))
-                crop = torch.as_tensor(crop.transpose(2, 0, 1))
-                # crop = torch.tensor(crop.transpose(2, 0, 1)) 
-
-                crop = crop.unsqueeze(0)
-                crops.append(crop)
-        else:
-            # Grid patch embeddings
-            for idx, box in enumerate(bbox):
-                crop = self.get_horizontal_split_patches(img, box, idx)
-                crops.append(crop)
-        crops = torch.cat(crops, dim=0)
-        # print(" crops shape is : ", crops.shape)
-        max_batch = 2
-        embs = []
-        
-        start_time_feature = time.time()
-        for idx in range(0, len(crops), max_batch):
-            batch_crops = crops[idx: idx+max_batch]
-            # print(" batch crops length is : ", len(batch_crops))    
-
-            # batch_crops = crops[idx]
-            # print(" batch crops shape is : ", batch_crops.shape)
-            # batch_crops = batch_crops.cuda()
-            frame1, (orig_sizes) = self.read_frame(batch_crops)
-            # print(" frame 1 shape is : ", frame1.shape)
-            frame1 = frame1.cuda()
-            with torch.no_grad():
-                unet_ft = model.forward(frame1,
-                                        t=args.t,
-                                        up_ft_index=args.up_ft_index,
-                                        ensemble_size=args.ensemble_size).squeeze() # c, h, w
-                # print(" shape of unet is : ", unet_ft.shape)
-                # unet_ft.s
-                try:
-                    batches, dim, h, w = unet_ft.shape
-                except:
-                    batches = 1
-                    dim, h, w = unet_ft.shape
-                    unet_ft = unet_ft.unsqueeze(0)
-                # print(" unet shape outsid is : ", unet_ft.shape)
-                # batches = 1
-                # unet_ft = torch.permute(unet_ft, (1, 2, 0)) # h,w,c
-                unet_ft = torch.permute(unet_ft, (0, 2, 3, 1))
-                # unet_ft = unet_ft.view(h * w, dim) # hw,c
-                unet_ft = unet_ft.view(batches, -1, dim)
-                # print(" shape of unet is : ", unet_ft.shape)
-
-                # gc.collect()
-                # torch.cuda.memory_summary(device=None, abbreviated=False)
-                torch.cuda.empty_cache()
-            
-            for batch_idx in range(batches):
-                # top_k_embs, _ = torch.topk(unet_ft[batch_idx], k = 48, dim = -1)
-                unet_ft_reshaped = unet_ft[batch_idx].view(-1, dim).cpu().numpy()
-                
-                n_components = 256  # Choose the number of components to keep
-                pca = PCA(n_components=n_components)
-                unet_ft_pca = pca.fit_transform(unet_ft_reshaped)
-
-                # Reshape back to original batch shape
-                unet_ft_pca = unet_ft_pca.reshape(-1, n_components)
-                embs.append(torch.from_numpy(unet_ft_pca))
-            del frame1, unet_ft, batch_crops
-            # embs.extend(unet_ft)
-            # embs.append(unet_ft)
-        # print(" time taken for JUST the model.forward part : {}".format(time.time() - start_time_feature))
-        embs = torch.stack(embs)
-        # embs = torch.cat(embs, dim=0)
-        embs = embs.reshape(len(embs), embs.shape[1] * embs.shape[2])
-        print(" embedding shape is : ", embs.shape)
-        embs = F.normalize(embs, dim=-1).cpu().numpy()
-        # print(" embeddings (diffusion) shape in the middle? : ", embs.shape)
-        # embs = torch.nn.functional.normalize(embs, embs.shape[-1]).cpu().numpy()
-        self.cache[tag] = embs
-        self.dump_cache(tag, tag.split(":")[0])
-        
-
-
-        # embs = torch.nn.functional.normalize(embs, embs.shape[-1]).cpu().numpy()
+        ## we only need to extract feature of the target frame
+        start_time = time.time()
+        feat_tar, h, w = self.extract_feature(args, model, frame_tar, return_h_w=True)
+        # print(" feat_tar shape is : ", feat_tar.shape)
+        # print(" time taken for the extraction step is :", time.time() - start_time)
+        # print(" heigtht and width after extraction step is : {},  {}".format(h, w))
         # gc.collect()
+        # torch.cuda.empty_cache()
+        processed_feature_maps = []  # List to store processed feature maps
 
+        # for feature_map in feat_tar[:, :, ]:
+            # feature_map = feat_tar.squeeze(0)
+            # mean_feature_map = torch.sum(feature_map, 2) / feature_map.shape[2]
+        mean_feature_map = feat_tar.mean(dim = 2)
+        processed_feature_maps.append(mean_feature_map.data.cpu().numpy())
+
+    #     print(" shape of processed feature map is : ", len(processed_feature_maps))
+    #    # Plot the feature maps
+    #     # fig = plt.figure(figsize=(20, 3))
+        # for i in range(len(processed_feature_maps)):
+        #     print("coming here?")
+            # ax = fig.add_subplot(5, 4, i + 1)
+            # ax.imshow(processed_feature_maps[i])
+            # plt.show()
+            # plt.imshow(processed_feature_maps[i])
+            # plt.show()
+    #         # ax.axis(&quot;off&quot;)
+            # ax.set_title(layer_names[i].split('(')[0], fontsize=30)
+
+        # ncontext = len(frame_source)
+        # print(" track embeddin g is : ", frame_source)
+        # print(" ncontext shape is :", ncontext)
+        # feat_sources = torch.stack(frame_source)     # nmb_context x dim x h*w
+        
+        feat_tar = F.normalize(feat_tar, dim=2)
+        # print(" features shape here in the beginning is : ", feat_tar.shape)
+        assert not torch.isnan(feat_tar).any(), "NaN found in features target"
+
+        # return_feat_tar = feat_tar.T # dim x h*w
+        # feat_sources = F.normalize(feat_sources, dim=1, p=2)
+        # print(" target features shape is : ", return_feat_tar.shape)
+        # print(" source features shape is : ", feat_sources.shape)
+        # feat_tar = feat_tar.unsqueeze(0).repeat(ncontext, 1, 1)
+        
+        feature_dims = (h,w)
+        
+        curr_bboxes_features = self.extract_bboxes_features(feat_tar, img, feature_dims, detections)
+       
+        
+        # print("current bboxes_features : ", curr_bboxes_features)
+        #### This measures the affinities(similarities) between the target frame and the source frames.
+        # torch.bmm performs match matrix multiplication for efficient similarity computation
+        # aff = torch.exp(torch.bmm(feat_tar, feat_sources) / args.temperature) # nmb_context x h*w (tar: query) x h*w (source: keys)
+        # print(" shape of affinitity is : ", aff.shape)
+        # if args.size_mask_neighborhood > 0:
+        #     if mask_neighborhood is None:
+        #         mask_neighborhood = self.restrict_neighborhood(h, w)
+        #         mask_neighborhood = mask_neighborhood.unsqueeze(0).repeat(ncontext, 1, 1)
+        #     aff *= mask_neighborhood  ## if the mask neighborhood is defined, restrict the affinity computation in that neighbourhood
+
+
+        # aff = aff.transpose(2, 1).reshape(-1, h * w) # nmb_context*h*w (source: keys) x h*w (tar: queries)
+
+
+
+        # tk_val, _ = torch.topk(aff, dim=0, k=args.topk) ### Identifying the top "K" Affinities [ Default K = 5]
+        # tk_val_min, _ = torch.min(tk_val, dim=0) ### Determining the lowest of the Top K Affinities.
+        # aff[aff < tk_val_min] = 0                ### Defining affinity values lower than top_k_val_min to 0 ( Filter out the lower K affinity values)
+
+        # aff = aff / torch.sum(aff, keepdim=True, axis=0)
+        # # print("Shape of affinity after processing ; ", aff.shape)
+        # # gc.collect()
+        # torch.cuda.empty_cache()
+
+        # list_segs = [s.cuda() for s in list_segs]
+        
+        # # print(" list segsis : ", len(list_segs))
+        # segs = torch.cat(list_segs)
+        # nmb_context, C, h, w = segs.shape
+        # print(" segmentation shape is : ", segs.shape)
+        # segs = segs.reshape(nmb_context, C, -1).transpose(2, 1).reshape(-1, C).T # C x nmb_context*h*w
+        
+        # # unique_values = torch.unique(segs)
+        # unique_values, indices, counts = torch.unique(segs, return_inverse=True, return_counts=True)
+        # # print(" unique values in segmentation mask is : ", unique_values[:150])
+        # # print("counts of unique values : ", counts  )
+        # seg_tar = torch.mm(segs, aff)
+
+        # seg_tar = seg_tar.reshape(1, C, h, w)
+        # return None, None, None
+        curr_bboxes_features = curr_bboxes_features.detach().cpu().numpy()
+        self.cache[tag] = curr_bboxes_features
+        self.dump_cache(tag, tag.split(":")[0])
+
+        return curr_bboxes_features
+        # return numpy_array = tensor.detach().cpu().numpy()
+        # return seg_tar, return_feat_tar, mask_neighborhood
+
+
+    def extract_feature(self, args, model, frame, return_h_w=False):
+    
+        
+       with torch.no_grad():
+        unet_ft = model.forward(frame,
+                                t=args.t,
+                                up_ft_index=args.up_ft_index,
+                                ensemble_size=args.ensemble_size).squeeze() # c, h, w
+        dim, h, w = unet_ft.shape
+        # print("dimension,  height and width of the UNET feature set is : {}, {} ,{}".format(dim, h, w) )
+        unet_ft = torch.permute(unet_ft, (1, 2, 0)) # h,w,c
+        # unet_ft = unet_ft.view(h * w, dim) # hw,c
         if return_h_w:
-            return embs, h, w
-        return embs
+            return unet_ft, h, w
+        return unet_ft
 
 
     def to_one_hot(self, y_tensor, n_dims=None):
@@ -257,50 +341,33 @@ class DiffusionEmbeddingComputer:
 
 
 
-    def read_frame(self, img_batch, scale_size=[480]):
+    def read_frame(self, img, scale_size=[480]):
         """
+
         read a single frame & preprocess
         """
-        # img = cv2.imread(fra)
-        # _, ori_h, ori_w = img.shape
-        B, C, ori_h, ori_w = img_batch.shape
-        ori_sizes = []
-        processed_imgs = []
-        for i in range(B):
-            img = img_batch[i]  # [C, H, W]
-            ori_sizes.append((ori_h, ori_w))  # Save original dimensions
-            
-            # Convert from [C, H, W] to [H, W, C] and numpy format
-            img = img.permute(1, 2, 0).cpu().numpy()  # [H, W, C]
-            
-            # Determine new height and width based on scale_size
-            if len(scale_size) == 1:
-                if ori_h > ori_w:
-                    tw = scale_size[0]
-                    th = (tw * ori_h) / ori_w
-                    th = int((th // 32) * 32)
-                else:
-                    th = scale_size[0]
-                    tw = (th * ori_w) / ori_h
-                    tw = int((tw // 32) * 32)
+        # img = cv2.imread(img_batch)
+        ori_h, ori_w, _ = img.shape
+        if len(scale_size) == 1:
+            if(ori_h > ori_w):
+                tw = scale_size[0]
+                th = (tw * ori_h) / ori_w
+                th = int((th // 32) * 32)
             else:
-                th, tw = scale_size
-            
-            # Resize the image
-            img = cv2.resize(img, (tw, th))
-            
-            # Normalize and preprocess
-            img = img.astype(np.float32) / 255.0  # Normalize to [0, 1]
-            img = img[:, :, ::-1]  # Convert RGB to BGR
-            img = np.transpose(img.copy(), (2, 0, 1))  # Back to [C, H, W]
-            img = torch.from_numpy(img).float()  # Convert to torch tensor
-            img = self.color_normalize(img)  # Apply normalization
-            
-            processed_imgs.append(img)
-        # Stack processed images into a batch
-        preprocessed_batch = torch.stack(processed_imgs)  # [B, C, th, tw]
-        # print(" preprocessed batch is : ", preprocessed_batch.shape)
-        return preprocessed_batch, ori_sizes
+                th = scale_size[0]
+                tw = (th * ori_w) / ori_h
+                tw = int((tw // 32) * 32)
+        else:
+            th, tw = scale_size
+        img = cv2.resize(img, (tw, th))
+        img = img.astype(np.float32)
+        img = img / 255.0
+        img = img[:, :, ::-1]
+        img = np.transpose(img.copy(), (2, 0, 1))
+        img = torch.from_numpy(img).float()
+        img = self.color_normalize(img)
+        # print(" image shape in read frame is : ", img.shape)
+        return img, ori_h, ori_w
 
 
 
@@ -332,5 +399,5 @@ class DiffusionEmbeddingComputer:
         for t, m, s in zip(x, mean, std):
             t.sub_(m)
             t.div_(s)
-        return x
+        return x 
 

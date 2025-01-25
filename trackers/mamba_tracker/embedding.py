@@ -24,8 +24,8 @@ class EmbeddingComputer:
         self.cache_name = ""
         self.grid_off = grid_off
         self.max_batch = max_batch
-        print(" dataset in embedded computer is : ",dataset)
-        print("Test dataset flag : ", test_dataset)
+        # print(" dataset in embedded computer is : ",dataset)
+        # print("Test dataset flag : ", test_dataset)
         # Only used for the general ReID model (not FastReID)
         self.normalize = False
 
@@ -106,7 +106,7 @@ class EmbeddingComputer:
                     "number of detections.\nWas the detector model changed? Delete cache if so."
                 )
             return embs
-
+        # print(" model is : ", self.model)
         if self.model is None:
             self.initialize_model()
 
@@ -147,7 +147,9 @@ class EmbeddingComputer:
             batch_crops = batch_crops.cuda()
             with torch.no_grad():
                 batch_embs = self.model(batch_crops)
+            # print(" batch embeddings size : ", batch_embs.shape)
             embs.extend(batch_embs)
+
         embs = torch.stack(embs)
         embs = torch.nn.functional.normalize(embs, dim=-1)
 
@@ -172,6 +174,9 @@ class EmbeddingComputer:
         elif self.dataset == "dancetrack":
             path = "external/weights/dance_sbs_S50.pth"
         elif self.dataset == "sportsmot_publish":
+            path = "external/weights/sports_sbs_S50.pth"
+        
+        elif self.dataset == "soccernet":
             path = "external/weights/sports_sbs_S50.pth"
         
         else:

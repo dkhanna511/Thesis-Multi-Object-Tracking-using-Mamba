@@ -227,9 +227,7 @@ class SDFeaturizer:
         Return:
             unet_ft: a torch tensor in the shape of [1, c, h, w]
         '''
-        B, C, H, W = img_tensor.shape  # Batch size, Channels, Height, Width
-        img_tensor = img_tensor.cuda()
-        # img_tensor = img_tensor.repeat(ensemble_size, 1, 1, 1).cuda() # ensem, c, h, w
+        img_tensor = img_tensor.repeat(ensemble_size, 1, 1, 1).cuda() # ensem, c, h, w
         if prompt == self.null_prompt:
             prompt_embeds = self.null_prompt_embeds
         else:
@@ -238,32 +236,15 @@ class SDFeaturizer:
                 device='cuda',
                 num_images_per_prompt=1,
                 do_classifier_free_guidance=False) # [1, 77, dim]
-            
-
-        prompt_embeds = prompt_embeds.repeat(B, 1, 1)
-
-
-        img_tensor = img_tensor.unsqueeze(1).repeat(1, ensemble_size, 1, 1, 1)  # [B, ensemble_size, C, H, W]
-        img_tensor = img_tensor.view(-1, C, H, W)  # Flatten to [B*ensemble_size, C, H, W]
-
-        prompt_embeds = prompt_embeds.unsqueeze(1).repeat(1, ensemble_size, 1, 1)  # [B, ensemble_size, 77, dim]
-        prompt_embeds = prompt_embeds.view(-1, 77, prompt_embeds.shape[-1])  # Flatten to [B*ensemble_size, 77, dim]
-
+        prompt_embeds = prompt_embeds.repeat(ensemble_size, 1, 1)
         unet_ft_all = self.pipe(
             img_tensor=img_tensor,
             t=t,
             up_ft_indices=[up_ft_index],
             prompt_embeds=prompt_embeds)
-        unet_ft = unet_ft_all['up_ft'][up_ft_index] # [B*ensemble_size, c, h, w]
-        unet_ft = unet_ft.view(B, ensemble_size, *unet_ft.shape[1:])  # [B, ensemble_size, c, h, w]
-        unet_ft = unet_ft.mean(1)  # Average over ensemble_size dimension, resulting in [B, c, h, w]
-        # print(" shape of unet is : ", unet_ft.shape)
-        # unet_ft = unet_ft.mean(0, keepdim=True) # 1,c,h,w
-        # if len(unet_ft.shape) == 3:  # dim, h, w
-        #     # unet_ft = unet_ft.unsqueeze(0)  # Make it 1, dim, h, w
-        #     print(" coming here?")
-        #     val = unet_ft.unsqueeze(0)
-        #     return val
+        unet_ft = unet_ft_all['up_ft'][up_ft_index] # ensem, c, h, w
+        unet_ft = unet_ft.mean(0, keepdim=True) # 1,c,h,w
+        return unet_ft
         
 
         return unet_ft
@@ -293,7 +274,7 @@ class SDFeaturizer4Eval(SDFeaturizer):
     def forward(self,
                 img,
                 category=None,
-                img_size=[768, 768],
+                img_size=[3, 768, 768],
                 t=261,
                 up_ft_index=1,
                 ensemble_size=8):
