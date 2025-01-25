@@ -1,0 +1,7 @@
+_BASE_: ../Base-SBS.yml
+
+DATASETS:
+  NAMES: ("SportsMOT",)
+  TESTS: ("SportsMOT",)
+
+OUTPUT_DIR: logs/SportsMOT/sbs_R50

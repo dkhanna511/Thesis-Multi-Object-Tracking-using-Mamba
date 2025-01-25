@@ -1,0 +1,7 @@
+_BASE_: ../Base-bagtricks.yml
+
+DATASETS:
+  NAMES: ("SportsMOT",)
+  TESTS: ("SportsMOT",)
+
+OUTPUT_DIR: logs/SportsMOT/bagtricks_R50
