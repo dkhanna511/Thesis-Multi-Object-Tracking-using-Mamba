@@ -79,3 +79,19 @@ models_trained/
 
 ### models store in root_dir
 *.pth
+*.txt
+*.out
+wandb/
+pretrained/
+datasets/
+
+
+### Videos
+*.mp4
+visualizations/
+sort/
+YOLOX_outputs/
+RESULTS_Dancetrack/
+RESULTS_SportsMOT/
+qualitative_analysis/
+qualitatuve_analysis/
