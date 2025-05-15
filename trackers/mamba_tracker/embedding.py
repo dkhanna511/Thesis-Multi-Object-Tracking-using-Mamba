@@ -18,6 +18,8 @@ class EmbeddingComputer:
         self.dataset = dataset
         self.test_dataset = test_dataset
         self.crop_size = (128, 384)
+        # dir_name_embeddings = "./cache/diffusion_embeddings_t_{}_up_ft_{}".format(self.t, self.up_ft_index)
+
         os.makedirs("./cache/embeddings/", exist_ok=True)
         self.cache_path = "./cache/embeddings/{}_embedding.pkl"
         self.cache = {}
@@ -31,10 +33,22 @@ class EmbeddingComputer:
 
     def load_cache(self, path):
         self.cache_name = path
+        # print(" cache name is : ", self.cache_name)
         cache_path = self.cache_path.format(path)
+        # print(" cache path is : ", cache_path)
         if os.path.exists(cache_path):
             with open(cache_path, "rb") as fp:
                 self.cache = pickle.load(fp)
+
+        else:
+            self.dump_cache()
+
+    # def load_cache(self, path):
+    #     self.cache_name = path
+    #     cache_path = self.cache_path.format(path)
+    #     if os.path.exists(cache_path):
+    #         with open(cache_path, "rb") as fp:
+    #             self.cache = pickle.load(fp)
 
     def get_horizontal_split_patches(self, image, bbox, tag, idx, viz=False):
         if isinstance(image, np.ndarray):
@@ -96,10 +110,12 @@ class EmbeddingComputer:
 
     def compute_embedding(self, img, bbox, tag):
         if self.cache_name != tag.split(":")[0]:
+            print(" cache name is : ", self.cache_name)
             self.load_cache(tag.split(":")[0])
 
         if tag in self.cache:
             embs = self.cache[tag]
+            print(" embeddings are : ", embs)
             if embs.shape[0] != bbox.shape[0]:
                 raise RuntimeError(
                     "ERROR: The number of cached embeddings don't match the "
@@ -179,6 +195,11 @@ class EmbeddingComputer:
         elif self.dataset == "soccernet":
             path = "external/weights/sports_sbs_S50.pth"
         
+        elif self.dataset == "Hockey_Data":
+            path = "external/weights/sports_sbs_S50.pth"
+        elif self.dataset == "VIP-HTD":
+            path = "pretrained/vip-htd-features.pth"
+            # path = "pretrained/hockey_all_TG_epoch4.pth"
         else:
             raise RuntimeError("Need the path for a new ReID model.")
 

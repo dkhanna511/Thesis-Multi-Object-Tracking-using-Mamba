@@ -568,10 +568,14 @@ class MambaTrackerDiffMOTWithoutVirtualDets(object):
 
     
         ################## THIS ONE IS FROM DEEP OC SORT code ####################################
-
+        # if len(dets)> 0:
+        #     if dets.shape[0] !=0:
         dets_embs = np.ones((dets.shape[0], 1))
-
+        # else:
+            # dets_embs = np.ones((0, 1))
         if dets.shape[0] != 0:
+        # if len(dets)> 0:
+            # print(" tag is : ", tag)
             dets_embs = self.embedder.compute_embedding(img, dets, tag)
             # print(" dets_embs shape is : ", dets_embs.shape)
         # print("dets are : ", dets.shape)

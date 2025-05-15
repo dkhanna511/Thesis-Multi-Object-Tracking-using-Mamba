@@ -38,9 +38,13 @@ def make_parser():
     parser.add_argument('--proximity_thresh', type=float, default=0.5, help='threshold for rejecting low overlap reid matches')
     parser.add_argument('--appearance_thresh', type=float, default=0.25, help='threshold for rejecting low appearance similarity reid matches')
      # tracking args
+    # parser.add_argument("--track_high_thresh", type=float, default=0.5, help="tracking confidence threshold")
     parser.add_argument("--track_high_thresh", type=float, default=0.6, help="tracking confidence threshold")
+    
     parser.add_argument("--track_low_thresh", default=0.1, type=float, help="lowest detection threshold valid for tracks")
     parser.add_argument("--new_track_thresh", default=0.7, type=float, help="new track thresh")
+
+    # parser.add_argument("--new_track_thresh", default=0.5, type=float, help="new track thresh")
 
     ### DiffMOT/ Deep-OC-SORT
     parser.add_argument("--aw_param", type=float, default=0.5)
@@ -92,18 +96,27 @@ def make_parser():
     parser.add_argument("-c", "--ckpt", default=None, type=str, help="ckpt for eval")
     parser.add_argument("--conf", default=0.1, type=float, help="test conf")
     parser.add_argument("--nms", default=0.7, type=float, help="test nms threshold")
+    
+    # parser.add_argument("--nms", default=0.4, type=float, help="test nms threshold")
+    
     parser.add_argument("--tsize", default=None, type=int, help="test img size")
     parser.add_argument("--seed", default=None, type=int, help="eval seed")
 
     # tracking args
+    # parser.add_argument("--track_thresh", type=float, default=0.4, help="detection confidence threshold")
     parser.add_argument("--track_thresh", type=float, default=0.6, help="detection confidence threshold")
     parser.add_argument("--iou_thresh", type=float, default=0.3, help="the iou threshold in Sort for matching")
     parser.add_argument("--min_hits", type=int, default=3, help="min hits to create track in SORT")
     parser.add_argument("--inertia", type=float, default=0.2, help="the weight of VDC term in cost matrix")
     parser.add_argument("--deltat", type=int, default=3, help="time step difference to estimate direction")
     parser.add_argument("--track_buffer", type=int, default=30, help="the frames for keep lost tracks")
+    # parser.add_argument("--match_thresh", type=float, default=0.5, help="matching threshold for tracking")
+    # parser.add_argument('--min-box-area', type=float, default=4, help='filter out tiny boxes')
+    
+    
     parser.add_argument("--match_thresh", type=float, default=0.9, help="matching threshold for tracking")
     parser.add_argument('--min-box-area', type=float, default=100, help='filter out tiny boxes')
+    
     parser.add_argument("--gt-type", type=str, default="_val_half", help="suffix to find the gt annotation")
     parser.add_argument("--mot20", dest="mot20", default=False, action="store_true", help="test mot20.")
     parser.add_argument("--public", action="store_true", help="use public detection")
